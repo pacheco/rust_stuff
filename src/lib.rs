@@ -107,7 +107,7 @@ impl<K: Ord, V> Node<K, V> {
 
             // move keys/values after median to sibling
             // TODO: reallocating new arrays... use unsafe and copy instead? mem::move?
-            if (t > 1) {
+            if t > 1 {
                 sibling.keys = child.keys.split_off(t);
                 sibling.values = child.values.split_off(t);
             }
@@ -115,7 +115,7 @@ impl<K: Ord, V> Node<K, V> {
             mkey = child.keys.pop().unwrap();
             mval = child.values.pop().unwrap();
             // move children after median to sibling
-            if (!child.children.is_empty()) {
+            if !child.children.is_empty() {
                 sibling.children = child.children.split_off(t);
             }
         }
