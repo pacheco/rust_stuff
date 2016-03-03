@@ -13,22 +13,23 @@
 /// - For _single-pass deletion_, a node needs to have at least `t` keys before being recursed in (except root).
 
 use std::mem;
+use std::fmt::Debug;
 
 /// BTree root. `t` is the minimum degree.
 #[derive(Debug)]
-pub struct BTree<K: Ord, V> {
+pub struct BTree<K: Ord + Debug, V: Debug> {
     t: usize,
     root: Box<Node<K, V>>,
 }
 
 #[derive(Debug)]
-struct Node<K: Ord, V> {
+struct Node<K: Ord + Debug, V: Debug> {
     keys: Vec<Box<K>>,
     values: Vec<Box<V>>,
     children: Vec<Box<Node<K, V>>>,
 }
 
-impl<K: Ord, V> BTree<K, V> {
+impl<K: Ord + Debug, V: Debug> BTree<K, V> {
     /// Empty BTree of the given minimum degree
     pub fn new(min_degree: usize) -> Self {
         BTree {
@@ -48,9 +49,32 @@ impl<K: Ord, V> BTree<K, V> {
         }
         self.root.insert(self.t, key, value)
     }
+
+    pub fn breath_first_print(&self) {
+        let mut queue: Vec<Option<&Box<Node<K,V>>>> = vec![];
+        queue.insert(0, Some(&self.root));
+        queue.insert(0, None);
+        while !queue.is_empty() {
+            match queue.pop().unwrap() {
+                Some(n) => {
+                    print!("{:?}", n.keys);
+                    for c in &n.children {
+                        queue.insert(0, Some(c));
+                    }
+                    queue.insert(0,None);
+                }
+                None => println!(""),
+            }
+        }
+    }
+
+
+    pub fn depth_first_print(&self) {
+        self.root.depth_first_print();
+    }
 }
 
-impl<K: Ord, V> Node<K, V> {
+impl<K: Ord + Debug, V: Debug> Node<K, V> {
     fn new_boxed(t: usize) -> Box<Self> {
         Box::new(Node {
             keys: Vec::with_capacity(t*2 - 1),
@@ -124,6 +148,21 @@ impl<K: Ord, V> Node<K, V> {
         self.keys.insert(child_idx, mkey);
         self.values.insert(child_idx, mval);
         self.children.insert(child_idx + 1, sibling);
+    }
+
+    fn depth_first_print(&self) {
+        let mut n = 0;
+        while n < self.keys.len() {
+            if !self.children.is_empty() {
+                let c = &self.children[n];
+                c.depth_first_print();
+            }
+            println!("{:?}", self.keys[n]);
+            n += 1;
+        }
+        if !self.children.is_empty() {
+            self.children[n].depth_first_print();
+        }
     }
 }
 
