@@ -1,12 +1,19 @@
 extern crate btree;
 
 use btree::BTree;
+use std::fmt::Debug;
 
-fn insert_print<K: Ord + Clone,V: Clone>(t: &mut BTree<K,V>, k: K, v: V) {
+fn insert<K: Ord + Debug, V: Debug>(t: &mut BTree<K,V>, k: K, v: V) {
+    match t.insert(k, v) {
+        Some(v) => println!("Old value was: {:?}", v),
+        _ => {}
+    }
+    println!("{:?}", t);
 }
 
 fn main() {
-    let mut r: BTree<i32,String> = BTree::new(1);
-    println!("{:?}", r.insert(1, String::from("burzum")));
-    println!("{:?}", r);
+    let mut r: BTree<i32, &str> = BTree::new(1);
+    insert(&mut r, 2, "foo");
+    insert(&mut r, 1, "bar");
+    insert(&mut r, 3, "baz");
 }

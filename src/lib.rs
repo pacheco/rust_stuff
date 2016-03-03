@@ -86,7 +86,7 @@ impl<K: Ord, V> Node<K, V> {
                     Some(*value)
                 }
                 Err(n) => {
-                    if self.children[n].children.len() == 2*t-1 {
+                    if self.children[n].keys.len() == 2*t-1 {
                         // child we need to recurse on is full, split it
                         self.split_child(t, n);
                     }
@@ -107,13 +107,17 @@ impl<K: Ord, V> Node<K, V> {
 
             // move keys/values after median to sibling
             // TODO: reallocating new arrays... use unsafe and copy instead? mem::move?
-            sibling.keys = child.keys.split_off(t);
-            sibling.values = child.values.split_off(t);
+            if (t > 1) {
+                sibling.keys = child.keys.split_off(t);
+                sibling.values = child.values.split_off(t);
+            }
             // median kv
             mkey = child.keys.pop().unwrap();
             mval = child.values.pop().unwrap();
             // move children after median to sibling
-            sibling.children = child.children.split_off(t);
+            if (!child.children.is_empty()) {
+                sibling.children = child.children.split_off(t);
+            }
         }
 
         // insert median and new sibling in parent
