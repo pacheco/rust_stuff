@@ -16,19 +16,19 @@ use std::mem;
 
 /// BTree root. `t` is the minimum degree.
 #[derive(Debug)]
-pub struct BTree<K: Ord + Clone, V: Clone> {
+pub struct BTree<K: Ord, V> {
     t: usize,
     root: Box<Node<K, V>>,
 }
 
 #[derive(Debug)]
-struct Node<K: Ord + Clone, V: Clone> {
+struct Node<K: Ord, V> {
     keys: Vec<Box<K>>,
     values: Vec<Box<V>>,
     children: Vec<Box<Node<K, V>>>,
 }
 
-impl<K: Ord + Clone, V: Clone> BTree<K, V> {
+impl<K: Ord, V> BTree<K, V> {
     /// Empty BTree of the given minimum degree
     pub fn new(min_degree: usize) -> Self {
         BTree {
@@ -50,7 +50,7 @@ impl<K: Ord + Clone, V: Clone> BTree<K, V> {
     }
 }
 
-impl<K: Ord + Clone, V: Clone> Node<K, V> {
+impl<K: Ord, V> Node<K, V> {
     fn new_boxed(t: usize) -> Box<Self> {
         Box::new(Node {
             keys: Vec::with_capacity(t*2 - 1),
