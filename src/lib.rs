@@ -29,8 +29,8 @@ pub struct BTree<K: Ord + Debug, V: Debug> {
 #[derive(Debug)]
 struct Node<K: Ord + Debug, V: Debug> {
     keys: Vec<K>,
-    values: Vec<V>,
     children: Vec<Box<Node<K, V>>>,
+    values: Vec<V>,
 }
 
 
