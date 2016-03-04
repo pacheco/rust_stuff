@@ -143,7 +143,7 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
 }
 
 
-// ----- Debug printing functions -----------------------------------------------------
+// Debug printing functions -----------------------------------------------------
 impl<K: Ord + Debug, V: Debug> BTree<K, V>{
     /// Print keys in breath first order. Same level keys are printed on the same line
     pub fn breath_first_print(&self) {
@@ -170,31 +170,52 @@ impl<K: Ord + Debug, V: Debug> BTree<K, V>{
         }
         stdout().flush().unwrap();
     }
-
-    /// Print keys in order
-    pub fn depth_first_print(&self) {
-        self.root.depth_first_print();
-    }
 }
 
 impl<K: Ord + Debug, V: Debug> Node<K, V> {
-    fn depth_first_print(&self) {
+    fn depth_first_collect_into<'a>(self, items: &mut Vec<(Box<K>,Box<V>)>) {
         let mut n = 0;
-        while n < self.keys.len() {
-            if !self.children.is_empty() {
-                let c = &self.children[n];
-                c.depth_first_print();
+        let has_children = !self.children.is_empty();
+        // TODO: using iterators because we can't move out of an indexed vec
+        let mut children = self.children.into_iter();
+        let mut keys = self.keys.into_iter();
+        let mut values = self.values.into_iter();
+        for kv in keys.zip(values) {
+            if has_children {
+                children.next().unwrap().depth_first_collect_into(items);
             }
-            println!("{:?}", self.keys[n]);
-            n += 1;
+            items.push(kv);
         }
-        if !self.children.is_empty() {
-            self.children[n].depth_first_print();
+        if has_children {
+            children.next().unwrap().depth_first_collect_into(items);
         }
     }
 }
 
-// ------ Tests ----------------------------------------
+// Iterator ---------------------------------------------
+impl<K: Ord + Debug, V:Debug> IntoIterator for BTree<K, V> {
+    type Item = (Box<K>, Box<V>);
+    type IntoIter = std::vec::IntoIter<(Box<K>, Box<V>)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut items = vec![];
+        self.root.depth_first_collect_into(&mut items);
+        items.into_iter()
+    }
+}
+
+// Tests ----------------------------------------
 #[test]
-fn test() {
+fn into_iter_test() {
+    let mut r: BTree<i32, i32> = BTree::new(4); //
+    for n in 1..1000 {
+        r.insert(n, 2*n);
+    }
+
+    let mut r = r.into_iter();
+    for n in 1..1000 {
+        let (k,v) = r.next().unwrap();
+        assert_eq!(*k, n);
+        assert_eq!(*v, 2*n);
+    }
 }

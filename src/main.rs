@@ -17,7 +17,7 @@ fn main() {
         insert(&mut r, n, n);
     }
 
-    r.breath_first_print();
-    println!("---------------------------------------------------------");
-    //r.depth_first_print();
+    for kv in r.into_iter() {
+        println!("{:?}", kv);
+    }
 }
