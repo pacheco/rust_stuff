@@ -19,7 +19,7 @@ use std::io::stdout;
 
 /// BTree root. `t` is the minimum degree.
 #[derive(Debug)]
-pub struct BTree<K: Ord + Debug, V: Debug> {
+pub struct BTree<K, V> where K: Ord + Debug, V: Debug {
     m: usize,
     count: usize,
     root: Box<Node<K, V>>,
@@ -27,14 +27,14 @@ pub struct BTree<K: Ord + Debug, V: Debug> {
 
 /// BTree node
 #[derive(Debug)]
-struct Node<K: Ord + Debug, V: Debug> {
+struct Node<K, V>  where K: Ord + Debug, V: Debug {
     keys: Vec<K>,
     children: Vec<Box<Node<K, V>>>,
     values: Vec<V>,
 }
 
 
-impl<K: Ord + Debug, V: Debug> BTree<K, V> {
+impl<K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
     /// Empty BTree of the given order. Order must be at least 3 (2 also "works" but produces bad trees)
     pub fn new(order: usize) -> Self {
         assert!(order > 3);
@@ -68,8 +68,7 @@ impl<K: Ord + Debug, V: Debug> BTree<K, V> {
     }
 }
 
-
-impl<K: Ord + Debug, V: Debug> Node<K, V> {
+impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
     /// Create a new node already Boxed
     fn new_boxed(order: usize) -> Box<Self> {
         Box::new(Node {
@@ -178,36 +177,6 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
 }
 
 
-// Debug printing functions -----------------------------------------------------
-impl<K: Ord + Debug, V: Debug> BTree<K, V>{
-    /// Print keys in breath first order. Same level keys are printed on the same line
-    pub fn breath_first_print(&self) {
-        let mut nodes: Vec<&Box<Node<K,V>>> = vec![];
-        let mut height = 0;
-        let mut height_nodes = 1; // tracks how many nodes we still need to pop in this height
-        let mut next_height_nodes = 0; // accumulator for the number of nodes on the next height
-        nodes.insert(0, &self.root);
-        while !nodes.is_empty() {
-            let n = nodes.pop().unwrap();
-            height_nodes -= 1;
-            next_height_nodes += n.children.len();
-            print!("{:?}=>{:?} ", n.keys, n.values);
-            if height_nodes == 0 {
-                // finished printing this height
-                height += 1;
-                height_nodes = next_height_nodes;
-                next_height_nodes = 0;
-                println!("");
-            }
-            for c in &n.children {
-                nodes.insert(0, c);
-            }
-        }
-        stdout().flush().unwrap();
-        println!("Tree has height {}", height);
-    }
-}
-
 // Iterators ---------------------------------------------
 
 struct NodeIter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + Debug {
@@ -282,7 +251,7 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + De
     }
 }
 
-impl<'a, K: Ord + Debug, V:Debug> BTree<K, V> {
+impl<'a, K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
     pub fn iter(&'a self) -> Iter<'a, K, V> {
         Iter {
             stack: vec![],
@@ -295,7 +264,7 @@ impl<'a, K: Ord + Debug, V:Debug> BTree<K, V> {
     }
 }
 
-impl<K: Ord + Debug, V: Debug> Node<K, V> {
+impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
     fn depth_first_collect_into<'a>(self, items: &mut Vec<(K,V)>) {
         let inner = !self.is_leaf();
         // TODO: using iterators because we can't move out of an indexed vec
@@ -314,7 +283,7 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
     }
 }
 
-impl<K: Ord + Debug, V:Debug> IntoIterator for BTree<K, V> {
+impl<K, V> IntoIterator for BTree<K, V> where K: Ord + Debug, V: Debug {
     type Item = (K,V);
     type IntoIter = std::vec::IntoIter<(K,V)>;
 
@@ -326,8 +295,40 @@ impl<K: Ord + Debug, V:Debug> IntoIterator for BTree<K, V> {
 }
 
 
+// Debug printing functions -----------------------------------------------------
+
+impl<K, V> BTree<K, V>  where K: Ord + Debug, V: Debug {
+    /// Print keys in breath first order. Same level keys are printed on the same line
+    pub fn breath_first_print(&self) {
+        let mut nodes: Vec<&Box<Node<K,V>>> = vec![];
+        let mut height = 0;
+        let mut height_nodes = 1; // tracks how many nodes we still need to pop in this height
+        let mut next_height_nodes = 0; // accumulator for the number of nodes on the next height
+        nodes.insert(0, &self.root);
+        while !nodes.is_empty() {
+            let n = nodes.pop().unwrap();
+            height_nodes -= 1;
+            next_height_nodes += n.children.len();
+            print!("{:?}=>{:?} ", n.keys, n.values);
+            if height_nodes == 0 {
+                // finished printing this height
+                height += 1;
+                height_nodes = next_height_nodes;
+                next_height_nodes = 0;
+                println!("");
+            }
+            for c in &n.children {
+                nodes.insert(0, c);
+            }
+        }
+        stdout().flush().unwrap();
+        println!("Tree has height {}", height);
+    }
+}
+
 
 // Tests ----------------------------------------
+
 #[test]
 fn into_iter_test() {
     let mut r: BTree<i32, i32> = BTree::new(4); //
