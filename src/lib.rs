@@ -20,6 +20,7 @@ use std::io::stdout;
 /// BTree root. `t` is the minimum degree.
 #[derive(Debug)]
 pub struct BTree<K, V> where K: Ord + Debug, V: Debug {
+    height: usize,
     m: usize,
     count: usize,
     root: Box<Node<K, V>>,
@@ -40,6 +41,7 @@ impl<K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
     pub fn new(order: usize) -> Self {
         assert!(order > 3);
         BTree {
+            height: 0,
             m: order,
             count: 0,
             root: Node::new_boxed(order),
@@ -51,10 +53,16 @@ impl<K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
         return self.root.get(key);
     }
 
+    #[inline]
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     /// Inserts an element, returning the older value or None
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         // if root is full, split it first
         if self.root.keys.len() == self.m-1 {
+            self.height += 1;
             let mut r = Node::new_boxed(self.m);
             mem::swap(&mut r, &mut self.root);
             self.root.children.push(r);
@@ -71,6 +79,7 @@ impl<K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
 
 impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
     /// Create a new node already Boxed
+    #[inline]
     fn new_boxed(order: usize) -> Box<Self> {
         Box::new(Node {
             keys: Vec::with_capacity(order - 1),
@@ -102,7 +111,7 @@ impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
     }
 
     /// Internal insert used by the BTree.insert() method
-    // TODO: non-recursive version?
+    // TODO: non-recursive version? tree height is log(len), seems not necessary
     fn insert(&mut self, order: usize, key: K, value: V) -> Option<V> {
         assert!(self.keys.len() < order-1);
         let mut value = value;
