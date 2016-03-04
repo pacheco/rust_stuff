@@ -27,8 +27,8 @@ pub struct BTree<K: Ord + Debug, V: Debug> {
 /// BTree node
 #[derive(Debug)]
 struct Node<K: Ord + Debug, V: Debug> {
-    keys: Vec<Box<K>>,
-    values: Vec<Box<V>>,
+    keys: Vec<K>,
+    values: Vec<V>,
     children: Vec<Box<Node<K, V>>>,
 }
 
@@ -70,15 +70,15 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
     /// Internal insert used by the BTree.insert() method
     fn insert(&mut self, order: usize, key: K, value: V) -> Option<V> {
         assert!(self.keys.len() < order-1);
-        let mut key = Box::new(key);
-        let mut value = Box::new(value);
+        let mut key = key;
+        let mut value = value;
         if self.children.is_empty() {
             // leaf, insert item into current node
             match self.keys.binary_search(&key) {
                 Ok(n) => {
                     mem::swap(&mut self.keys[n], &mut key);
                     mem::swap(&mut self.values[n], &mut value);
-                    Some(*value)
+                    Some(value)
                 }
                 Err(n) => {
                     self.keys.insert(n, key);
@@ -92,7 +92,7 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
                 Ok(n) => {
                     mem::swap(&mut self.keys[n], &mut key);
                     mem::swap(&mut self.values[n], &mut value);
-                    Some(*value)
+                    Some(value)
                 }
                 Err(n) => {
                     let mut n = n;
@@ -101,7 +101,7 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
                         self.split_child(order, n);
                         n += 1;
                     }
-                    self.children[n].insert(order, *key, *value)
+                    self.children[n].insert(order, key, value)
                 }
             }
         }
@@ -111,8 +111,8 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
     /// going down the tree. This method expects the given child to be
     /// full (order-1 elements).
     fn split_child(&mut self, order: usize, child_idx: usize) {
-        let mkey: Box<K>;
-        let mval: Box<V>;
+        let mkey: K;
+        let mval: V;
         let mut sibling: Box<Self> = Node::new_boxed(order);
         // new block just so we can borrow into `child` to make the code nicer
         {
@@ -173,7 +173,7 @@ impl<K: Ord + Debug, V: Debug> BTree<K, V>{
 }
 
 impl<K: Ord + Debug, V: Debug> Node<K, V> {
-    fn depth_first_collect_into<'a>(self, items: &mut Vec<(Box<K>,Box<V>)>) {
+    fn depth_first_collect_into<'a>(self, items: &mut Vec<(K,V)>) {
         let mut n = 0;
         let has_children = !self.children.is_empty();
         // TODO: using iterators because we can't move out of an indexed vec
@@ -194,8 +194,8 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
 
 // Iterator ---------------------------------------------
 impl<K: Ord + Debug, V:Debug> IntoIterator for BTree<K, V> {
-    type Item = (Box<K>, Box<V>);
-    type IntoIter = std::vec::IntoIter<(Box<K>, Box<V>)>;
+    type Item = (K,V);
+    type IntoIter = std::vec::IntoIter<(K,V)>;
 
     fn into_iter(self) -> Self::IntoIter {
         let mut items = vec![];
@@ -215,7 +215,7 @@ fn into_iter_test() {
     let mut r = r.into_iter();
     for n in 1..1000 {
         let (k,v) = r.next().unwrap();
-        assert_eq!(*k, n);
-        assert_eq!(*v, 2*n);
+        assert_eq!(k, n);
+        assert_eq!(v, 2*n);
     }
 }
