@@ -29,6 +29,7 @@ pub struct BTree<K, V> where K: Ord + Debug, V: Debug {
 #[derive(Debug)]
 struct Node<K, V>  where K: Ord + Debug, V: Debug {
     keys: Vec<K>,
+    // boxed nodes add a level of indirection but use much less memory if the vector is not full
     children: Vec<Box<Node<K, V>>>,
     values: Vec<V>,
 }
@@ -143,7 +144,7 @@ impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
 
     /// Used to do single pass insertions. Full nodes are split while
     /// going down the tree. This method expects the given child to be
-    /// full (order-1 elements).
+    /// full and the node (parent) to be _not_ full
     fn split_child(&mut self, order: usize, child_idx: usize) {
         let mkey: K;
         let mval: V;
