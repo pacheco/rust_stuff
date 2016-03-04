@@ -21,6 +21,7 @@ use std::io::stdout;
 #[derive(Debug)]
 pub struct BTree<K: Ord + Debug, V: Debug> {
     m: usize,
+    count: usize,
     root: Box<Node<K, V>>,
 }
 
@@ -39,8 +40,14 @@ impl<K: Ord + Debug, V: Debug> BTree<K, V> {
         assert!(order > 3);
         BTree {
             m: order,
+            count: 0,
             root: Node::new_boxed(order),
         }
+    }
+
+    /// Return Some(value) corresponding to the key or None
+    pub fn get(&self, key: &K) -> Option<&V> {
+        return self.root.get(key);
     }
 
     /// Inserts an element, returning the older value or None
@@ -52,7 +59,12 @@ impl<K: Ord + Debug, V: Debug> BTree<K, V> {
             self.root.children.push(r);
             self.root.split_child(self.m, 0);
         }
-        self.root.insert(self.m, key, value)
+        let v = self.root.insert(self.m, key, value);
+        match v {
+            Some(_) => self.count += 1,
+            _ => {}
+        }
+        v
     }
 }
 
@@ -67,12 +79,35 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
         })
     }
 
+    #[inline]
+    fn is_leaf(&self) -> bool {
+        return self.children.is_empty();
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        let mut curr = self;
+        loop {
+            match curr.keys.binary_search(key) {
+                Ok(n) => {
+                    return Some(&curr.values[n]);
+                }
+                Err(n) => {
+                    if curr.is_leaf() {
+                        return None;
+                    }
+                    curr = &*curr.children[n];
+                }
+            }
+        }
+    }
+
     /// Internal insert used by the BTree.insert() method
+    // TODO: non-recursive version?
     fn insert(&mut self, order: usize, key: K, value: V) -> Option<V> {
         assert!(self.keys.len() < order-1);
         let mut key = key;
         let mut value = value;
-        if self.children.is_empty() {
+        if self.is_leaf() {
             // leaf, insert item into current node
             match self.keys.binary_search(&key) {
                 Ok(n) => {
@@ -130,7 +165,7 @@ impl<K: Ord + Debug, V: Debug> Node<K, V> {
             mkey = child.keys.pop().unwrap();
             mval = child.values.pop().unwrap();
             // move children after median to sibling
-            if !child.children.is_empty() {
+            if !child.is_leaf() {
                 sibling.children = child.children.split_off(median);
             }
         }
@@ -156,42 +191,129 @@ impl<K: Ord + Debug, V: Debug> BTree<K, V>{
             let n = nodes.pop().unwrap();
             height_nodes -= 1;
             next_height_nodes += n.children.len();
-            print!("{:?}", n.keys);
+            print!("{:?}=>{:?} ", n.keys, n.values);
             if height_nodes == 0 {
                 // finished printing this height
                 height += 1;
                 height_nodes = next_height_nodes;
                 next_height_nodes = 0;
-                println!("{}", height);
+                println!("");
             }
             for c in &n.children {
                 nodes.insert(0, c);
             }
         }
         stdout().flush().unwrap();
+        println!("Tree has height {}", height);
+    }
+}
+
+// Iterators ---------------------------------------------
+
+struct NodeIter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + Debug {
+    node: &'a Node<K, V>,
+    next_val: usize,
+    go_child: bool,
+}
+
+pub struct Iter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + Debug {
+    stack: Vec<NodeIter<'a, K, V>>,
+    curr: NodeIter<'a, K, V>,
+}
+
+impl<'a, K, V> Iterator for Iter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + Debug {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.curr.node.is_leaf() {
+                // leaf, consume a value or pop node from stack
+                if self.curr.next_val < self.curr.node.values.len() {
+                    let i = self.curr.next_val;
+                    self.curr.next_val += 1;
+                    return Some((&self.curr.node.keys[i], &self.curr.node.values[i])); // consume a value
+                } else {
+                    // pop from stack
+                    match self.stack.pop() {
+                        Some(x) => {
+                            self.curr = x;
+                            continue;
+                        }
+                        None => {
+                            return None;
+                        }
+                    }
+                }
+            } else {
+                // non-leaf, either go to child, consume a value or pop node from stack
+                if self.curr.go_child {
+                    // go to child
+                    self.curr.go_child = false;
+                    let mut tmp = NodeIter {
+                        node: &self.curr.node.children[self.curr.next_val],
+                        next_val: 0,
+                        go_child: true,
+                    };
+                    mem::swap(&mut tmp, &mut self.curr);
+                    self.stack.push(tmp);
+                    continue;
+                } else {
+                    // try to consume a value
+                    if self.curr.next_val < self.curr.node.values.len() {
+                        self.curr.go_child = true;
+                        let i = self.curr.next_val;
+                        self.curr.next_val += 1;
+                        return Some((&self.curr.node.keys[i], &self.curr.node.values[i])); // consume a value
+                    } else {
+                        // pop from stack
+                        match self.stack.pop() {
+                            Some(x) => {
+                                self.curr = x;
+                                continue;
+                            }
+                            None => {
+                                return None;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<'a, K: Ord + Debug, V:Debug> BTree<K, V> {
+    pub fn iter(&'a self) -> Iter<'a, K, V> {
+        Iter {
+            stack: vec![],
+            curr: NodeIter {
+                node: &self.root,
+                next_val: 0,
+                go_child: true,
+            }
+        }
     }
 }
 
 impl<K: Ord + Debug, V: Debug> Node<K, V> {
     fn depth_first_collect_into<'a>(self, items: &mut Vec<(K,V)>) {
-        let has_children = !self.children.is_empty();
+        let inner = !self.is_leaf();
         // TODO: using iterators because we can't move out of an indexed vec
         let mut children = self.children.into_iter();
         let keys = self.keys.into_iter();
         let values = self.values.into_iter();
         for kv in keys.zip(values) {
-            if has_children {
+            if inner {
                 children.next().unwrap().depth_first_collect_into(items);
             }
             items.push(kv);
         }
-        if has_children {
+        if inner {
             children.next().unwrap().depth_first_collect_into(items);
         }
     }
 }
 
-// Iterator ---------------------------------------------
 impl<K: Ord + Debug, V:Debug> IntoIterator for BTree<K, V> {
     type Item = (K,V);
     type IntoIter = std::vec::IntoIter<(K,V)>;
@@ -202,6 +324,8 @@ impl<K: Ord + Debug, V:Debug> IntoIterator for BTree<K, V> {
         items.into_iter()
     }
 }
+
+
 
 // Tests ----------------------------------------
 #[test]
@@ -217,4 +341,36 @@ fn into_iter_test() {
         assert_eq!(k, n);
         assert_eq!(v, 2*n);
     }
+}
+
+#[test]
+fn iter_test() {
+    let mut r: BTree<i32, i32> = BTree::new(4); //
+    for n in 1..10 {
+        r.insert(n, 2*n);
+    }
+
+    let mut r = r.iter();
+    for n in 1..10 {
+        let (k,v) = r.next().unwrap();
+        assert_eq!(*k, n);
+        assert_eq!(*v, 2*n);
+    }
+}
+
+#[test]
+fn get_test() {
+    let mut r: BTree<i32, i32> = BTree::new(4); //
+    for n in 1..1000 {
+        r.insert(n, 2*n);
+    }
+
+    for n in 1..1000 {
+        match r.get(&n) {
+            Some(i) => assert_eq!(*i, n*2),
+            _ => panic!(),
+        }
+    }
+
+    assert_eq!(r.get(&0), None);
 }

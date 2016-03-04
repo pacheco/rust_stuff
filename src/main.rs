@@ -1,23 +1,34 @@
 extern crate btree;
+extern crate rand;
 
 use btree::BTree;
-use std::fmt::Debug;
-
-fn insert<K: Ord + Debug, V: Debug>(t: &mut BTree<K,V>, k: K, v: V) {
-    match t.insert(k, v) {
-        Some(v) => println!("Old value was: {:?}", v),
-        _ => {}
-    }
-    //t.breath_first_print();
-}
+use std::collections::BTreeMap;
 
 fn main() {
-    let mut r: BTree<i32, i32> = BTree::new(4); //
-    for n in 1..1000 {
-        insert(&mut r, n, n);
+    let mut t: BTree<i32, i32> = BTree::new(10); //
+    for n in 1..1000000 {
+        t.insert(n, n*2);
     }
 
-    for kv in r.into_iter() {
-        println!("{:?}", kv);
+    // let mut t: BTreeMap<i32, i32> = BTreeMap::new(); //
+    // for n in 1..1000000 {
+    //     t.insert(n, n*2);
+    // }
+
+    for n in 1..1000000 {
+        t.get(&n);
     }
+
+    let mut items = t.iter();
+    for n in 1..1000000 {
+        items.next();
+    }
+
+    // t.breath_first_print();
+
+    // println!("{:?}", t.get(&3));
+
+    // for kv in t.into_iter() {
+    //     println!("{:?}", kv);
+    // }
 }
