@@ -18,8 +18,7 @@ use std::io::Write;
 use std::io::stdout;
 
 /// BTree root. `t` is the minimum degree.
-#[derive(Debug)]
-pub struct BTree<K, V> where K: Ord + Debug, V: Debug {
+pub struct BTree<K, V> where K: Ord {
     height: usize,
     m: usize,
     count: usize,
@@ -27,8 +26,7 @@ pub struct BTree<K, V> where K: Ord + Debug, V: Debug {
 }
 
 /// BTree node
-#[derive(Debug)]
-struct Node<K, V>  where K: Ord + Debug, V: Debug {
+struct Node<K, V>  where K: Ord {
     keys: Vec<K>,
     // boxed nodes add a level of indirection but use much less memory if the vector is not full
     children: Vec<Box<Node<K, V>>>,
@@ -36,7 +34,7 @@ struct Node<K, V>  where K: Ord + Debug, V: Debug {
 }
 
 
-impl<K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
+impl<K, V> BTree<K, V> where K: Ord {
     /// Empty BTree of the given order. Order must be at least 3 (2 also "works" but produces bad trees)
     pub fn new(order: usize) -> Self {
         assert!(order > 3);
@@ -75,9 +73,13 @@ impl<K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
         }
         v
     }
+
+    pub fn remove(&mut self, key: K) -> Option<V> {
+        None
+    }
 }
 
-impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
+impl<K, V> Node<K, V> where K: Ord {
     /// Create a new node already Boxed
     #[inline]
     fn new_boxed(order: usize) -> Box<Self> {
@@ -180,18 +182,18 @@ impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
 
 // Iterators ---------------------------------------------
 
-struct NodeIter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + Debug {
+struct NodeIter<'a, K, V> where K: 'a + Ord, V: 'a {
     node: &'a Node<K, V>,
     next_val: usize,
     go_child: bool,
 }
 
-pub struct Iter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + Debug {
+pub struct Iter<'a, K, V> where K: 'a + Ord, V: 'a {
     stack: Vec<NodeIter<'a, K, V>>,
     curr: NodeIter<'a, K, V>,
 }
 
-impl<'a, K, V> Iterator for Iter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + Debug {
+impl<'a, K, V> Iterator for Iter<'a, K, V> where K: 'a + Ord, V: 'a {
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -252,7 +254,7 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> where K: 'a + Ord + Debug, V: 'a + De
     }
 }
 
-impl<'a, K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
+impl<'a, K, V> BTree<K, V> where K: Ord {
     pub fn iter(&'a self) -> Iter<'a, K, V> {
         Iter {
             stack: vec![],
@@ -265,7 +267,7 @@ impl<'a, K, V> BTree<K, V> where K: Ord + Debug, V: Debug {
     }
 }
 
-impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
+impl<K, V> Node<K, V> where K: Ord {
     fn depth_first_collect_into<'a>(self, items: &mut Vec<(K,V)>) {
         let inner = !self.is_leaf();
         // TODO: using iterators because we can't move out of an indexed vec
@@ -284,7 +286,7 @@ impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
     }
 }
 
-impl<K, V> IntoIterator for BTree<K, V> where K: Ord + Debug, V: Debug {
+impl<K, V> IntoIterator for BTree<K, V> where K: Ord {
     type Item = (K,V);
     type IntoIter = std::vec::IntoIter<(K,V)>;
 
@@ -300,7 +302,7 @@ impl<K, V> IntoIterator for BTree<K, V> where K: Ord + Debug, V: Debug {
 
 impl<K, V> BTree<K, V>  where K: Ord + Debug, V: Debug {
     /// Print keys in breath first order. Same level keys are printed on the same line
-    pub fn breath_first_print(&self) {
+    pub fn breath_first_debug_print(&self) {
         let mut nodes: Vec<&Box<Node<K,V>>> = vec![];
         let mut height = 0;
         let mut height_nodes = 1; // tracks how many nodes we still need to pop in this height
