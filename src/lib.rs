@@ -105,38 +105,29 @@ impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
     // TODO: non-recursive version?
     fn insert(&mut self, order: usize, key: K, value: V) -> Option<V> {
         assert!(self.keys.len() < order-1);
-        let mut key = key;
         let mut value = value;
-        if self.is_leaf() {
-            // leaf, insert item into current node
-            match self.keys.binary_search(&key) {
-                Ok(n) => {
-                    mem::swap(&mut self.keys[n], &mut key);
-                    mem::swap(&mut self.values[n], &mut value);
-                    Some(value)
-                }
-                Err(n) => {
-                    self.keys.insert(n, key);
-                    self.values.insert(n, value);
-                    None
-                }
+        let mut curr = self;
+
+        match curr.keys.binary_search(&key) {
+            Ok(n) => {
+                mem::swap(&mut curr.values[n], &mut value);
+                return Some(value);
             }
-        } else {
-            // inner node
-            match self.keys.binary_search(&key) {
-                Ok(n) => {
-                    mem::swap(&mut self.keys[n], &mut key);
-                    mem::swap(&mut self.values[n], &mut value);
-                    Some(value)
-                }
-                Err(n) => {
+            Err(n) => {
+                if curr.is_leaf() {
+                    // leaf, insert item
+                    curr.keys.insert(n, key);
+                    curr.values.insert(n, value);
+                    return None;
+                } else {
+                    // inner node
                     let mut n = n;
-                    if self.children[n].keys.len() == order-1 {
+                    if curr.children[n].keys.len() == order-1 {
                         // child we need to recurse on is full, split it
-                        self.split_child(order, n);
+                        curr.split_child(order, n);
                         n += 1;
                     }
-                    self.children[n].insert(order, key, value)
+                    curr.children[n].insert(order, key, value)
                 }
             }
         }
@@ -148,7 +139,7 @@ impl<K, V> Node<K, V> where K: Ord + Debug, V: Debug {
     fn split_child(&mut self, order: usize, child_idx: usize) {
         let mkey: K;
         let mval: V;
-        let mut sibling: Box<Self> = Node::new_boxed(order);
+        let mut sibling = Node::new_boxed(order);
         // new block just so we can borrow into `child` to make the code nicer
         {
             let child = &mut self.children[child_idx];
