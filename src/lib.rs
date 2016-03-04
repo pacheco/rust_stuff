@@ -174,12 +174,11 @@ impl<K: Ord + Debug, V: Debug> BTree<K, V>{
 
 impl<K: Ord + Debug, V: Debug> Node<K, V> {
     fn depth_first_collect_into<'a>(self, items: &mut Vec<(K,V)>) {
-        let mut n = 0;
         let has_children = !self.children.is_empty();
         // TODO: using iterators because we can't move out of an indexed vec
         let mut children = self.children.into_iter();
-        let mut keys = self.keys.into_iter();
-        let mut values = self.values.into_iter();
+        let keys = self.keys.into_iter();
+        let values = self.values.into_iter();
         for kv in keys.zip(values) {
             if has_children {
                 children.next().unwrap().depth_first_collect_into(items);
