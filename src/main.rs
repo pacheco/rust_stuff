@@ -8,25 +8,16 @@ fn insert<K: Ord + Debug, V: Debug>(t: &mut BTree<K,V>, k: K, v: V) {
         Some(v) => println!("Old value was: {:?}", v),
         _ => {}
     }
-    // println!("{:?}", t);
+    //t.breath_first_print();
 }
 
 fn main() {
-    let mut r: BTree<i32, &str> = BTree::new(5); //
-    insert(&mut r, 1, "a");
-    insert(&mut r, 2, "b");
-    insert(&mut r, 3, "c");
-    insert(&mut r, 4, "d");
-    insert(&mut r, 5, "e");
-    insert(&mut r, 6, "f");
-    insert(&mut r, 7, "g");
-    insert(&mut r, 8, "h");
-
-    println!("");
-    println!("");
-    println!("");
+    let mut r: BTree<i32, i32> = BTree::new(4); //
+    for n in (1..1000) {
+        insert(&mut r, n, n);
+    }
 
     r.breath_first_print();
-
-    r.depth_first_print();
+    println!("---------------------------------------------------------");
+    //r.depth_first_print();
 }
