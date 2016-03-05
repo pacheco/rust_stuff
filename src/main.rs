@@ -17,8 +17,8 @@ fn do_print_duration<F>(mut f: F) where F: FnMut() {
 
 fn main() {
 
-    //let mut t: BTree<i32, i32> = BTree::new(6);
-    let mut t: BTreeMap<i32, i32> = BTreeMap::new();
+    let mut t: BTree<i32, i32> = BTree::new(6);
+    // let mut t: BTreeMap<i32, i32> = BTreeMap::new();
 
     do_print_duration(|| {
         for n in (1..N).rev() {
