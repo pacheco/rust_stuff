@@ -43,14 +43,14 @@ impl<K, V> BTree<K, V> where K: Ord {
 
     /// Empty BTree of the given order. Minimum order is 4 (a 2-3 tree).
     ///
-    pub fn new_with_order(order: usize) -> Self {
+    pub fn new_with_order(m: usize) -> Self {
         // min order is 4 (2-3 tree)
-        let order = if order < 4 { 4 } else { order };
+        let m = if m < 4 { 4 } else { m };
         BTree {
             height: 1,
-            m: order,
+            m: m,
             count: 0,
-            root: Node::new_boxed(order),
+            root: Node::new_boxed(m),
         }
     }
 
@@ -490,7 +490,7 @@ impl<K, V> BTree<K, V>  where K: Ord + Debug, V: Debug {
 
 #[test]
 fn into_iter_test() {
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in 1..1000 {
         r.insert(n, 2*n);
     }
@@ -502,7 +502,7 @@ fn into_iter_test() {
         assert_eq!(v, 2*n);
     }
 
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in (1..1000).rev() {
         r.insert(n, 2*n);
     }
@@ -517,7 +517,7 @@ fn into_iter_test() {
 
 #[test]
 fn iter_test() {
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in 1..1000 {
         r.insert(n, 2*n);
     }
@@ -529,7 +529,7 @@ fn iter_test() {
         assert_eq!(*v, 2*n);
     }
 
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in (1..1000).rev() {
         r.insert(n, 2*n);
     }
@@ -544,7 +544,7 @@ fn iter_test() {
 
 #[test]
 fn get_test() {
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in 1..1000 {
         r.insert(n, 2*n);
     }
@@ -558,7 +558,7 @@ fn get_test() {
 
     assert_eq!(r.get(&0), None);
 
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in (1..1000).rev() {
         r.insert(n, 2*n);
     }
@@ -575,7 +575,7 @@ fn get_test() {
 
 #[test]
 fn test_remove() {
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in 1..1000 {
         r.insert(n, 2*n);
     }
@@ -587,7 +587,7 @@ fn test_remove() {
         }
     }
 
-    let mut r: BTree<i32, i32> = BTree::new(4);
+    let mut r: BTree<i32, i32> = BTree::new();
     for n in (1..1000).rev() {
         r.insert(n, 2*n);
     }
@@ -602,6 +602,6 @@ fn test_remove() {
 
 #[test]
 fn test_order() {
-    let mut r: BTree<i32, i32> = BTree::new(3);
+    let mut r: BTree<i32, i32> = BTree::new_with_order(3);
     assert_eq!(r.m, 4);
 }
