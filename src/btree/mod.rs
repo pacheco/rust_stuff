@@ -36,9 +36,16 @@ struct Node<K, V>  where K: Ord {
 
 
 impl<K, V> BTree<K, V> where K: Ord {
-    /// Empty BTree of the given order. Order must be at least 3 (2 also "works" but produces bad trees)
-    pub fn new(order: usize) -> Self {
-        assert!(order > 3);
+    /// Empty BTree with an order of 10
+    pub fn new() -> Self {
+        Self::new_with_order(10)
+    }
+
+    /// Empty BTree of the given order. Minimum order is 4 (a 2-3 tree).
+    ///
+    pub fn new_with_order(order: usize) -> Self {
+        // min order is 4 (2-3 tree)
+        let order = if order < 4 { 4 } else { order };
         BTree {
             height: 1,
             m: order,
@@ -591,4 +598,10 @@ fn test_remove() {
             _ => panic!(n),
         }
     }
+}
+
+#[test]
+fn test_order() {
+    let mut r: BTree<i32, i32> = BTree::new(3);
+    assert_eq!(r.m, 4);
 }
