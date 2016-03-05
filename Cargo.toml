@@ -1,5 +1,5 @@
 [package]
-name = "btree"
+name = "rust_stuff"
 version = "0.1.0"
 authors = ["Leandro Pacheco <contact@leandropacheco.com>"]
 
