@@ -1,16 +1,16 @@
-/// B-tree implementation with single-pass insertion and deletion
+/// B-tree implementation with single-pass insertion and
+/// deletion. Algorithm from
+/// [http://staff.ustc.edu.cn/~csli/graduate/algorithms/book6/chap19.htm].
 ///
 /// A B-tree has an order `m`, the maximum number of children an inner node can hold.
 ///
 /// Invariants:
 ///
-/// - Every node (except the root) should have at least `m/2` keys and at most `m-1` keys
-///
-/// - A node with x keys has x+1 children
+/// - Every node (except the root) should have at least `m/2 - 1` keys and at most `m-1` keys
 ///
 /// - For _single-pass insertion_, full nodes need to be split before being recursed in. Root is a special case (create new root and split).
 ///
-/// - For _single-pass deletion_, a node needs to have at least `floor(m/2) + 1` keys before being recursed in (except root).
+/// - For _single-pass deletion_, a node needs to have at least `m/2` keys before being recursed in.
 
 use std::mem;
 use std::fmt::Debug;
@@ -51,7 +51,6 @@ impl<K, V> BTree<K, V> where K: Ord {
         return self.root.get(key);
     }
 
-    #[inline]
     pub fn height(&self) -> usize {
         self.height
     }
@@ -74,7 +73,6 @@ impl<K, V> BTree<K, V> where K: Ord {
         v
     }
 
-    #[inline]
     pub fn len(&self) -> usize {
         self.count
     }
@@ -96,7 +94,6 @@ impl<K, V> BTree<K, V> where K: Ord {
 
 impl<K, V> Node<K, V> where K: Ord {
     /// Create a new node already Boxed
-    #[inline]
     fn new_boxed(m: usize) -> Box<Self> {
         Box::new(Node {
             keys: Vec::with_capacity(m - 1),
@@ -105,12 +102,10 @@ impl<K, V> Node<K, V> where K: Ord {
         })
     }
 
-    #[inline]
     fn is_leaf(&self) -> bool {
         return self.children.is_empty();
     }
 
-    #[inline]
     fn is_full(&self, m: usize) -> bool {
         self.keys.len() == m-1
     }
@@ -415,6 +410,7 @@ impl<'a, K, V> BTree<K, V> where K: Ord {
     }
 }
 
+// TODO: implement a lazy version of the into iterator
 impl<K, V> Node<K, V> where K: Ord {
     fn depth_first_collect_into<'a>(self, items: &mut Vec<(K,V)>) {
         let inner = !self.is_leaf();

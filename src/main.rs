@@ -1,56 +1,61 @@
 extern crate rust_stuff;
-extern crate rand;
+extern crate time;
 
 use rust_stuff::BTree;
 use std::collections::BTreeMap;
 use std::io;
 use std::io::Read;
 
-const N:i32 = 10000000;
+const N:i32 = 10_000_000;
+
+fn do_print_duration<F>(mut f: F) where F: FnMut() {
+    let start = time::PreciseTime::now();
+    f();
+    let duration = start.to(time::PreciseTime::now());
+    println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
+}
 
 fn main() {
-    let mut t: BTree<i32, i32> = BTree::new(10);
-    for n in (1..N).rev() {
-        t.insert(n, n*2);
-    }
+
+    //let mut t: BTree<i32, i32> = BTree::new(6);
+    let mut t: BTreeMap<i32, i32> = BTreeMap::new();
+
+    do_print_duration(|| {
+        for n in (1..N).rev() {
+            t.insert(n, n*2);
+        }
+    });
 
     // println!("height: {}", t.height());
-    // println!("len: {}", t.len());
-
-    // let mut t: BTreeMap<i32, i32> = BTreeMap::new();
-    // for n in (1..N).rev() {
-    //     t.insert(n, n*2);
-    // }
 
     // println!("press enter...");
     // io::stdin().read_line(&mut String::new());
 
+    do_print_duration(|| {
+        let mut foo = 0;
+        for n in 1..N {
+            let x = t.get(&n);
+            foo += *x.unwrap();
+        }
+    });
+
+    // let start = time::PreciseTime::now();
+    // let mut items = t.iter();
+    // let mut foo = 0;
+    // for n in 1..N {
+    //     let x = items.next();
+    //     foo += *x.unwrap().1;
+    // }
+    // let duration = start.to(time::PreciseTime::now());
+    // println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
+
+    let start = time::PreciseTime::now();
     for n in 1..N {
-        t.get(&n);
+        match t.remove(&n) {
+            Some(i) => assert_eq!(i, n*2),
+            _ => panic!(n),
+        }
     }
-
-    // {
-    //     let mut items = t.iter();
-    //     for n in 1..N {
-    //         items.next();
-    //     }
-    // }
-
-    // let mut items = t.into_iter();
-    // for n in 1..N {
-    //     items.next();
-    // }
-
-    //t.breath_first_debug_print(false);
-
-    // for n in 1..N {
-    //     match t.remove(&n) {
-    //         Some(i) => assert_eq!(i, n*2),
-    //         _ => panic!(n),
-    //     }
-    // }
-
-    // for kv in t.into_iter() {
-    //     println!("{:?}", kv);
-    // }
+    let duration = start.to(time::PreciseTime::now());
+    println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
 }
