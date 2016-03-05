@@ -4,7 +4,7 @@
 ///
 /// Invariants:
 ///
-/// - Every node (except the root) should have at least `floor(m/2)` keys and at most `m-1` keys
+/// - Every node (except the root) should have at least `m/2` keys and at most `m-1` keys
 ///
 /// - A node with x keys has x+1 children
 ///
@@ -39,7 +39,7 @@ impl<K, V> BTree<K, V> where K: Ord {
     pub fn new(order: usize) -> Self {
         assert!(order > 3);
         BTree {
-            height: 0,
+            height: 1,
             m: order,
             count: 0,
             root: Node::new_boxed(order),
@@ -59,7 +59,7 @@ impl<K, V> BTree<K, V> where K: Ord {
     /// Inserts an element, returning the older value or None
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         // if root is full, split it first
-        if self.root.keys.len() == self.m-1 {
+        if self.root.is_full(self.m) {
             self.height += 1;
             let mut r = Node::new_boxed(self.m);
             mem::swap(&mut r, &mut self.root);
@@ -68,31 +68,56 @@ impl<K, V> BTree<K, V> where K: Ord {
         }
         let v = self.root.insert(self.m, key, value);
         match v {
-            Some(_) => self.count += 1,
+            None => self.count += 1,
             _ => {}
         }
         v
     }
 
-    pub fn remove(&mut self, key: K) -> Option<V> {
-        None
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        let kv = self.root.remove(self.m, key);
+        if self.root.keys.is_empty() && !self.root.children.is_empty() {
+            debug_assert_eq!(self.root.children.len(), 1);
+            self.root = self.root.children.pop().unwrap();
+            self.height -= 1;
+        }
+
+        match kv {
+            Some((k,v)) => Some(v),
+            None => None,
+        }
     }
 }
 
 impl<K, V> Node<K, V> where K: Ord {
     /// Create a new node already Boxed
     #[inline]
-    fn new_boxed(order: usize) -> Box<Self> {
+    fn new_boxed(m: usize) -> Box<Self> {
         Box::new(Node {
-            keys: Vec::with_capacity(order - 1),
-            values: Vec::with_capacity(order - 1),
-            children: Vec::with_capacity(order),
+            keys: Vec::with_capacity(m - 1),
+            values: Vec::with_capacity(m - 1),
+            children: Vec::with_capacity(m),
         })
     }
 
     #[inline]
     fn is_leaf(&self) -> bool {
         return self.children.is_empty();
+    }
+
+    #[inline]
+    fn is_full(&self, m: usize) -> bool {
+        self.keys.len() == m-1
+    }
+
+    fn is_too_small(&self, m: usize) -> bool {
+        // joining two nodes should be < full
+        self.keys.len() < (m/2)
     }
 
     fn get(&self, key: &K) -> Option<&V> {
@@ -114,8 +139,8 @@ impl<K, V> Node<K, V> where K: Ord {
 
     /// Internal insert used by the BTree.insert() method
     // TODO: non-recursive version? tree height is log(len), seems not necessary
-    fn insert(&mut self, order: usize, key: K, value: V) -> Option<V> {
-        assert!(self.keys.len() < order-1);
+    fn insert(&mut self, m: usize, key: K, value: V) -> Option<V> {
+        debug_assert!(!self.is_full(m));
         let mut value = value;
         let mut curr = self;
 
@@ -132,13 +157,17 @@ impl<K, V> Node<K, V> where K: Ord {
                     return None;
                 } else {
                     // inner node
-                    let mut n = n;
-                    if curr.children[n].keys.len() == order-1 {
+                    if curr.children[n].is_full(m) {
                         // child we need to recurse on is full, split it
-                        curr.split_child(order, n);
-                        n += 1;
+                        curr.split_child(m, n);
+                        if key < curr.keys[n] {
+                            curr.children[n].insert(m, key, value)
+                        } else {
+                            curr.children[n+1].insert(m, key, value)
+                        }
+                    } else {
+                        curr.children[n].insert(m, key, value)
                     }
-                    curr.children[n].insert(order, key, value)
                 }
             }
         }
@@ -147,22 +176,21 @@ impl<K, V> Node<K, V> where K: Ord {
     /// Used to do single pass insertions. Full nodes are split while
     /// going down the tree. This method expects the given child to be
     /// full and the node (parent) to be _not_ full
-    fn split_child(&mut self, order: usize, child_idx: usize) {
+    fn split_child(&mut self, m: usize, child_idx: usize) {
         let mkey: K;
         let mval: V;
-        let mut sibling = Node::new_boxed(order);
+        let mut sibling = Node::new_boxed(m);
         // new block just so we can borrow into `child` to make the code nicer
         {
             let child = &mut self.children[child_idx];
-            assert_eq!(child.keys.len(), order-1);
+            debug_assert!(child.is_full(m));
 
             // move keys/values after median to sibling
             // TODO: reallocating new arrays... use unsafe and copy instead? mem::move?
-            let median = (order+1)/2;
-            if order > 2 { // corner case of having a single key
-                sibling.keys = child.keys.split_off(median);
-                sibling.values = child.values.split_off(median);
-            }
+            let median = (m+1)/2;
+            sibling.keys = child.keys.split_off(median);
+            sibling.values = child.values.split_off(median);
+
             // median kv
             mkey = child.keys.pop().unwrap();
             mval = child.values.pop().unwrap();
@@ -176,6 +204,126 @@ impl<K, V> Node<K, V> where K: Ord {
         self.keys.insert(child_idx, mkey);
         self.values.insert(child_idx, mval);
         self.children.insert(child_idx + 1, sibling);
+    }
+
+    pub fn remove(&mut self, m: usize, key: &K) -> Option<(K,V)> {
+        match self.keys.binary_search(key) {
+            Ok(n) => { // found item in node
+                if self.is_leaf() {
+                    Some((self.keys.remove(n), self.values.remove(n)))
+                } else {
+                    // here we're removing the key from an inner
+                    // node. We need to "raise" a key from either left
+                    // or right side, if any of them is larger then
+                    // the minimum size. If both are minimal, merge
+                    // them plus the removed key and recursively
+                    // delete on the merged node. We use `unsafe` to
+                    // get an immutable reference to the key we will
+                    // move up - we need to call delete() recursivelly
+                    if !self.children[n].is_too_small(m) {
+                        // take item from left
+                        let pred_key: &K;
+                        unsafe {
+                            pred_key = &*(self.children[n].keys.last().unwrap() as *const K);
+                        }
+                        let (mut k, mut v) = self.children[n].remove(m, pred_key).unwrap();
+                        mem::swap(&mut self.keys[n], &mut k);
+                        mem::swap(&mut self.values[n], &mut v);
+                        Some((k,v))
+                    } else if !self.children[n+1].is_too_small(m) {
+                        // take item from right
+                        let succ_key: &K;
+                        unsafe {
+                            succ_key = &*(self.children[n+1].keys.first().unwrap() as *const K);
+                        }
+                        let (mut k, mut v) = self.children[n+1].remove(m, succ_key).unwrap();
+                        mem::swap(&mut self.keys[n], &mut k);
+                        mem::swap(&mut self.values[n], &mut v);
+                        Some((k,v))
+                    } else { // merge nodes
+                        let k = self.keys.remove(n);
+                        let v = self.values.remove(n);
+                        let mut deleted_node = self.children.remove(n+1);
+                        self.children[n].keys.push(k);
+                        self.children[n].values.push(v);
+                        self.children[n].keys.append(&mut deleted_node.keys);
+                        self.children[n].values.append(&mut deleted_node.values);
+                        self.children[n].children.append(&mut deleted_node.children);
+                        self.children[n].remove(m, key)
+                    }
+                }
+            }
+            Err(n) => { // did not find item in node
+                if self.is_leaf() {
+                    None
+                } else {
+                    // make sure node is large enough before recursing
+                    if self.children[n].is_too_small(m) {
+                        if n > 0 && !self.children[n-1].is_too_small(m) { // take from left
+                            // move a key down to node
+                            let k = self.keys.remove(n-1);
+                            let v = self.values.remove(n-1);
+                            self.children[n].keys.insert(0, k);
+                            self.children[n].values.insert(0, v);
+                            // move a key up from left sibling
+                            let k = self.children[n-1].keys.pop().unwrap();
+                            let v = self.children[n-1].values.pop().unwrap();
+                            self.keys.insert(n-1, k);
+                            self.values.insert(n-1, v);
+                            // move child from left sibling
+                            if !self.children[n-1].is_leaf() {
+                                let c = self.children[n-1].children.pop().unwrap();
+                                self.children[n].children.insert(0,c);
+                            }
+                        }
+                        else if n < self.keys.len() && !self.children[n+1].is_too_small(m) { // take from right
+                            // move a key down to node
+                            let k = self.keys.remove(n);
+                            let v = self.values.remove(n);
+                            self.children[n].keys.push(k);
+                            self.children[n].values.push(v);
+                            // move a key up from right sibling
+                            let k = self.children[n+1].keys.remove(0);
+                            let v = self.children[n+1].values.remove(0);
+                            self.keys.insert(n, k);
+                            self.values.insert(n, v);
+                            // move child from right sibling
+                            if !self.children[n+1].is_leaf() {
+                                let c = self.children[n+1].children.remove(0);
+                                self.children[n].children.push(c);
+                            }
+                        } else {
+                            if n > 0 { // merge with left sibling
+                                // move a key down as new median
+                                let k = self.keys.remove(n-1);
+                                let v = self.values.remove(n-1);
+                                self.children[n-1].keys.push(k);
+                                self.children[n-1].values.push(v);
+                                // merge node
+                                let mut removed_node = self.children.remove(n);
+                                self.children[n-1].keys.append(&mut removed_node.keys);
+                                self.children[n-1].values.append(&mut removed_node.values);
+                                self.children[n-1].children.append(&mut removed_node.children);
+                                // corner case where `n` changes
+                                return self.children[n-1].remove(m,key);
+                            } else { // merge with right sibling
+                                // move a key down as new median
+                                let k = self.keys.remove(n);
+                                let v = self.values.remove(n);
+                                self.children[n].keys.push(k);
+                                self.children[n].values.push(v);
+                                // merge node
+                                let mut removed_node = self.children.remove(n+1);
+                                self.children[n].keys.append(&mut removed_node.keys);
+                                self.children[n].values.append(&mut removed_node.values);
+                                self.children[n].children.append(&mut removed_node.children);
+                            }
+                        }
+                    }
+                    self.children[n].remove(m, key)
+                }
+            }
+        }
     }
 }
 
@@ -302,7 +450,7 @@ impl<K, V> IntoIterator for BTree<K, V> where K: Ord {
 
 impl<K, V> BTree<K, V>  where K: Ord + Debug, V: Debug {
     /// Print keys in breath first order. Same level keys are printed on the same line
-    pub fn breath_first_debug_print(&self) {
+    pub fn breath_first_debug_print(&self, print_values: bool) {
         let mut nodes: Vec<&Box<Node<K,V>>> = vec![];
         let mut height = 0;
         let mut height_nodes = 1; // tracks how many nodes we still need to pop in this height
@@ -312,7 +460,11 @@ impl<K, V> BTree<K, V>  where K: Ord + Debug, V: Debug {
             let n = nodes.pop().unwrap();
             height_nodes -= 1;
             next_height_nodes += n.children.len();
-            print!("{:?}=>{:?} ", n.keys, n.values);
+            if print_values {
+                print!("{:?}=>{:?} ", n.keys, n.values);
+            } else {
+                print!("{:?} ", n.keys);
+            }
             if height_nodes == 0 {
                 // finished printing this height
                 height += 1;
@@ -334,8 +486,20 @@ impl<K, V> BTree<K, V>  where K: Ord + Debug, V: Debug {
 
 #[test]
 fn into_iter_test() {
-    let mut r: BTree<i32, i32> = BTree::new(4); //
+    let mut r: BTree<i32, i32> = BTree::new(4);
     for n in 1..1000 {
+        r.insert(n, 2*n);
+    }
+
+    let mut r = r.into_iter();
+    for n in 1..1000 {
+        let (k,v) = r.next().unwrap();
+        assert_eq!(k, n);
+        assert_eq!(v, 2*n);
+    }
+
+    let mut r: BTree<i32, i32> = BTree::new(4);
+    for n in (1..1000).rev() {
         r.insert(n, 2*n);
     }
 
@@ -349,8 +513,20 @@ fn into_iter_test() {
 
 #[test]
 fn iter_test() {
-    let mut r: BTree<i32, i32> = BTree::new(4); //
+    let mut r: BTree<i32, i32> = BTree::new(4);
+    for n in 1..1000 {
+        r.insert(n, 2*n);
+    }
+
+    let mut r = r.iter();
     for n in 1..10 {
+        let (k,v) = r.next().unwrap();
+        assert_eq!(*k, n);
+        assert_eq!(*v, 2*n);
+    }
+
+    let mut r: BTree<i32, i32> = BTree::new(4);
+    for n in (1..1000).rev() {
         r.insert(n, 2*n);
     }
 
@@ -364,7 +540,7 @@ fn iter_test() {
 
 #[test]
 fn get_test() {
-    let mut r: BTree<i32, i32> = BTree::new(4); //
+    let mut r: BTree<i32, i32> = BTree::new(4);
     for n in 1..1000 {
         r.insert(n, 2*n);
     }
@@ -377,4 +553,45 @@ fn get_test() {
     }
 
     assert_eq!(r.get(&0), None);
+
+    let mut r: BTree<i32, i32> = BTree::new(4);
+    for n in (1..1000).rev() {
+        r.insert(n, 2*n);
+    }
+
+    for n in 1..1000 {
+        match r.get(&n) {
+            Some(i) => assert_eq!(*i, n*2),
+            _ => panic!(),
+        }
+    }
+
+    assert_eq!(r.get(&0), None);
+}
+
+#[test]
+fn test_remove() {
+    let mut r: BTree<i32, i32> = BTree::new(4);
+    for n in 1..1000 {
+        r.insert(n, 2*n);
+    }
+
+    for n in 1..1000 {
+        match r.remove(&n) {
+            Some(i) => assert_eq!(i, n*2),
+            _ => panic!(n),
+        }
+    }
+
+    let mut r: BTree<i32, i32> = BTree::new(4);
+    for n in (1..1000).rev() {
+        r.insert(n, 2*n);
+    }
+
+    for n in 1..1000 {
+        match r.remove(&n) {
+            Some(i) => assert_eq!(i, n*2),
+            _ => panic!(n),
+        }
+    }
 }
