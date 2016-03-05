@@ -15,8 +15,7 @@ fn do_print_duration<F>(mut f: F) where F: FnMut() {
     println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
 }
 
-fn main() {
-
+fn test_btree() {
     let mut t: BTree<i32, i32> = BTree::new();
     // let mut t: BTreeMap<i32, i32> = BTreeMap::new();
 
@@ -58,4 +57,11 @@ fn main() {
     }
     let duration = start.to(time::PreciseTime::now());
     println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
+}
+
+fn test_rbtree() {
+}
+
+fn main() {
+    test_btree();
 }
