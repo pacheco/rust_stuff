@@ -602,6 +602,6 @@ fn test_remove() {
 
 #[test]
 fn test_order() {
-    let mut r: BTree<i32, i32> = BTree::new_with_order(3);
+    let r: BTree<i32, i32> = BTree::new_with_order(3);
     assert_eq!(r.m, 4);
 }
