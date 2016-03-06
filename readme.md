@@ -5,3 +5,5 @@ Misc things implemented in rust to learn about the language and the misc things 
 ## BTree
 B-tree with a variable `order` (max number of children of a node).
 
+## RBTree
+Left-leaning Red-Black Tree.
