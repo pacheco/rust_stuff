@@ -4,6 +4,7 @@
 extern crate rust_stuff;
 extern crate time;
 
+use rust_stuff::RBTree;
 use rust_stuff::BTree;
 use std::collections::BTreeMap;
 use std::io;
@@ -18,9 +19,10 @@ fn do_print_duration<F>(mut f: F) where F: FnMut() {
     println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
 }
 
-fn test_btree() {
-    let mut t: BTree<i32, i32> = BTree::new();
-    // let mut t: BTreeMap<i32, i32> = BTreeMap::new();
+fn test_tree() {
+    let mut t = BTree::new_with_order(6);
+    // let mut t = RBTree::new();
+    // let mut t = BTreeMap::new();
 
     do_print_duration(|| {
         for n in (1..N).rev() {
@@ -51,20 +53,17 @@ fn test_btree() {
     // let duration = start.to(time::PreciseTime::now());
     // println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
 
-    let start = time::PreciseTime::now();
-    for n in 1..N {
-        match t.remove(&n) {
-            Some(i) => assert_eq!(i, n*2),
-            _ => panic!(n),
-        }
-    }
-    let duration = start.to(time::PreciseTime::now());
-    println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
-}
-
-fn test_rbtree() {
+    // let start = time::PreciseTime::now();
+    // for n in 1..N {
+    //     match t.remove(&n) {
+    //         Some(i) => assert_eq!(i, n*2),
+    //         _ => panic!(n),
+    //     }
+    // }
+    // let duration = start.to(time::PreciseTime::now());
+    // println!("operation took {}.{}s", duration.num_seconds(), duration.num_milliseconds() % 1000);
 }
 
 fn main() {
-    test_btree();
+    test_tree();
 }
