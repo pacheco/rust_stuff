@@ -20,8 +20,8 @@ fn do_print_duration<F>(mut f: F) where F: FnMut() {
 }
 
 fn test_tree() {
-    let mut t = BTree::new_with_order(6);
-    // let mut t = RBTree::new();
+    // let mut t = BTree::new_with_order(6);
+    let mut t = RBTree::new();
     // let mut t = BTreeMap::new();
 
     do_print_duration(|| {
@@ -40,6 +40,7 @@ fn test_tree() {
         for n in 1..N {
             let x = t.get(&n);
             foo += *x.unwrap();
+            foo -= *x.unwrap();
         }
     });
 
