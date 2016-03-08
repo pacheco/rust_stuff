@@ -50,6 +50,10 @@ impl<K,V> RBTree<K,V> where K: Ord {
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         self.root.insert(key,value)
     }
+
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.root.remove(key)
+    }
 }
 
 
@@ -133,15 +137,15 @@ impl<K,V> Node<K,V> where K: Ord {
 
 /// BoxedNode ------------------
 trait BoxedNode {
-    type K;
+    type K: Ord;
     type V;
     fn get(&self, key: &Self::K) -> Option<&Self::V>;
     fn min(&self) -> Option<&Self::V>;
     fn max(&self) -> Option<&Self::V>;
     fn insert(&mut self, key: Self::K, value: Self::V) -> Option<Self::V>;
-    fn remove_max(&mut self) -> Option<Self::V>;
-    fn remove_min(&mut self) -> Option<Self::V>;
+    fn remove(&mut self, key: &Self::K) -> Option<Self::V>;
     // helpers
+    fn remove_min(&mut self) -> Option<Box<Node<Self::K,Self::V>>>;
     fn is_red(&self) -> bool;
 }
 
@@ -244,48 +248,7 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
         }
     }
 
-    fn remove_max(&mut self) -> Option<V> {
-        let mut remove_self = false;
-        let mut ret = None;
-        match self.as_mut() {
-            None => return None,
-            Some(n) => {
-                // lean 3-nodes to the right
-                if n.left.is_red() {
-                    n.rotate_right();
-                }
-                if n.right.is_none() {
-                    remove_self = true;
-                } else {
-                    if !n.right.is_red() && !n.right.as_ref().unwrap().left.is_red() {
-                        n.move_red_right();
-                    }
-                    ret = n.right.remove_max();
-                    // fix right-leaning red
-                    if n.right.is_red() {
-                        n.rotate_left();
-                    }
-                    // fix two reds in a row
-                    if n.left.is_red() && n.left.as_ref().unwrap().left.is_red() {
-                        n.rotate_right();
-                    }
-                    // break 4-nodes
-                    if n.left.is_red() && n.right.is_red() {
-                        n.color_flip();
-                    }
-                }
-            }
-        }
-
-        if remove_self {
-            let old = self.take();
-            return Some(old.unwrap().value);
-        } else {
-            return ret;
-        }
-    }
-
-    fn remove_min(&mut self) -> Option<V> {
+    fn remove_min(&mut self) -> Option<Box<Node<K,V>>> {
         let mut remove_self = false;
         let mut ret = None;
         match self.as_mut() {
@@ -315,11 +278,61 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
         }
 
         if remove_self {
+            return self.take();
+        }
+        return ret;
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        let mut remove_self = false;
+        let mut ret = None;
+        match self.as_mut() {
+            None => return None,
+            Some(n) => {
+                if *key < n.key {
+                    if !n.left.is_red() && !n.left.as_ref().unwrap().left.is_red() {
+                        n.move_red_left();
+                    }
+                    ret = n.left.remove(key);
+                }
+                else {
+                    if n.left.is_red() {
+                        n.rotate_right();
+                    }
+                    if *key == n.key && n.right.is_none() {
+                        remove_self = true;
+                    } else {
+                        if !n.right.is_red() && !n.right.as_ref().unwrap().left.is_red() {
+                            n.move_red_right();
+                        }
+                        if key == &n.key {
+                            let mut min_right = n.right.remove_min();
+                            mem::swap(n, &mut min_right.as_mut().unwrap());
+                            ret = Some(min_right.unwrap().value);
+                        }
+                    }
+                }
+                if !remove_self {
+                    // fix right-leaning red
+                    if n.right.is_red() {
+                        n.rotate_left();
+                    }
+                    // fix two reds in a row
+                    if n.left.is_red() && n.left.as_ref().unwrap().left.is_red() {
+                        n.rotate_right();
+                    }
+                    // break 4-nodes
+                    if n.left.is_red() && n.right.is_red() {
+                        n.color_flip();
+                    }
+                }
+            }
+        }
+        if remove_self { // modify self outside due to the borrow checker...
             let old = self.take();
             return Some(old.unwrap().value);
-        } else {
-            return ret;
         }
+        return ret;
     }
 }
 
@@ -341,18 +354,6 @@ fn test_get() {
 }
 
 #[test]
-fn test_remove_max() {
-    let mut tree = RBTree::new();
-
-    for i in (1..1000).rev() {
-        tree.insert(i,i);
-    }
-    for i in (1..1000).rev() {
-        assert_eq!(tree.root.remove_max(), Some(i));
-    }
-}
-
-#[test]
 fn test_remove_min() {
     let mut tree = RBTree::new();
 
@@ -360,9 +361,23 @@ fn test_remove_min() {
         tree.insert(i,i);
     }
     for i in 1..1000 {
-        assert_eq!(tree.root.remove_min(), Some(i));
+        assert_eq!(tree.root.remove_min().unwrap().value, i);
     }
 }
+
+
+#[test]
+fn test_remove() {
+    let mut tree = RBTree::new();
+
+    for i in (1..1000).rev() {
+        tree.insert(i,i);
+    }
+    for i in 1..1000 {
+        assert_eq!(tree.remove(&i), Some(i));
+    }
+}
+
 
 #[allow(dead_code)]
 fn debug_breadth_print<K,V>(tree: &RBTree<K,V>) where K: Ord + Debug {
