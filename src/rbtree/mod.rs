@@ -1,11 +1,13 @@
 /// A Left-leaning Red-Black Tree.
 ///
 /// Sedgewick's algorithm from: https://www.cs.princeton.edu/~rs/talks/LLRB/LLRB.pdf
+extern crate rand;
 
 use std::fmt::Debug;
 use std::mem;
 use std::cmp::Ordering::*;
 use std::io::{stdout, Write};
+use self::rand::{thread_rng, Rng};
 
 use self::Color::*;
 #[derive(Debug, PartialEq, Clone)]
@@ -371,6 +373,18 @@ fn test_remove() {
     let mut tree = RBTree::new();
 
     for i in (1..1000).rev() {
+        tree.insert(i,i);
+    }
+    for i in 1..1000 {
+        assert_eq!(tree.remove(&i), Some(i));
+    }
+
+    tree = RBTree::new();
+
+    let mut rng = rand::thread_rng();
+    let mut shuffled = (1..1000).collect::<Vec<_>>();
+    rng.shuffle(shuffled.as_mut_slice());
+    for i in shuffled.into_iter() {
         tree.insert(i,i);
     }
     for i in 1..1000 {
