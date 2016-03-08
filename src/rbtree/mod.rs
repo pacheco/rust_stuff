@@ -1,6 +1,6 @@
 /// A Left-leaning Red-Black Tree.
 ///
-/// Sedgewick's algorithm from: https://www.cs.princeton.edu/~rs/talks/LLRB/RedBlack.pdf
+/// Sedgewick's algorithm from: https://www.cs.princeton.edu/~rs/talks/LLRB/LLRB.pdf
 
 use std::fmt::Debug;
 use std::mem;
@@ -12,6 +12,15 @@ use self::Color::*;
 enum Color {
     Black,
     Red,
+}
+
+impl Color {
+    fn inverse(&self) -> Color {
+        match *self {
+            Black => Red,
+            Red => Black,
+        }
+    }
 }
 
 /// Left Leaning Red-Black Tree
@@ -27,70 +36,20 @@ impl<K,V> RBTree<K,V> where K: Ord {
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
-        if let Some(n) = self.root.as_ref() {
-            return n.get(key)
-        }
-        None
+        self.root.get(key)
     }
 
     pub fn min(&self) -> Option<&V> {
-        if let Some(n) = self.root.as_ref() {
-            return n.min()
-        }
-        None
+        self.root.min()
     }
 
     pub fn max(&self) -> Option<&V> {
-        if let Some(n) = self.root.as_ref() {
-            return n.max()
-        }
-        None
+        self.root.max()
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        if let Some(n) = self.root.as_mut() {
-            return n.insert(key, value)
-        }
-        self.root = Some(Node::new_boxed(key, value, Red));
-        None
+        self.root.insert(key,value)
     }
-}
-
-#[allow(dead_code)]
-fn debug_breadth_print<K,V>(tree: &RBTree<K,V>) where K: Ord + Debug {
-    if tree.root.is_none() {
-        println!("Empty tree");
-        return;
-    }
-    let mut queue = vec![];
-    queue.push(tree.root.as_ref().unwrap());
-    let mut height = 0;
-    let mut height_nodes = 1; // tracks how many nodes we still need to pop in this height
-    let mut next_height_nodes = 0; // accumulator for the number of nodes on the next height
-    while !queue.is_empty() {
-        let n = queue.pop().unwrap();
-        height_nodes -= 1;
-        print!("{:?} ", n.key);
-
-        if n.left.is_some() {
-            next_height_nodes += 1;
-            queue.insert(0, n.left.as_ref().unwrap());
-        }
-        if n.right.is_some() {
-            next_height_nodes += 1;
-            queue.insert(0, n.right.as_ref().unwrap());
-        }
-
-        if height_nodes == 0 {
-            // finished printing this height
-            height += 1;
-            height_nodes = next_height_nodes;
-            next_height_nodes = 0;
-            println!("");
-        }
-    }
-    stdout().flush().unwrap();
-    println!("Tree has height {}", height);
 }
 
 
@@ -105,8 +64,8 @@ struct Node<K,V> where K: Ord {
 }
 
 impl<K,V> Node<K,V> where K: Ord {
-    fn new_boxed(k: K, v: V, color: Color) -> Box<Node<K,V>> {
-        Box::new(Self::new(k,v,color))
+    fn new_boxed(k: K, v: V, color: Color) -> Option<Box<Node<K,V>>> {
+        Some(Box::new(Self::new(k,v,color)))
     }
 
     fn new(k: K, v: V, color: Color) -> Self {
@@ -118,140 +77,16 @@ impl<K,V> Node<K,V> where K: Ord {
             color: color,
         }
     }
-}
 
-/// BoxedNode ------------------
-trait BoxedNode {
-    type K;
-    type V;
-    fn get(&self, key: &Self::K) -> Option<&Self::V>;
-    fn min(&self) -> Option<&Self::V>;
-    fn max(&self) -> Option<&Self::V>;
-    fn insert(&mut self, key: Self::K, value: Self::V) -> Option<Self::V>;
-    fn is_red(&self) -> bool;
-    fn is_black(&self) -> bool {
-        !self.is_red()
-    }
-    // helpers
-    fn flip_red(&mut self);
-    fn rotate_left(&mut self);
-    fn rotate_right(&mut self);
-}
-
-/// helper for red option
-fn is_red<K,V>(n: &Option<Box<Node<K,V>>>) -> bool where K:Ord {
-    match n.as_ref() {
-        Some(n) => n.is_red(),
-        None => false,
-    }
-}
-
-/// helper for red option followed by a left red
-fn is_red_left_red<K,V>(n: &Option<Box<Node<K,V>>>) -> bool where K:Ord {
-    if let Some(n) = n.as_ref() {
-        if n.is_red() {
-            if let Some(n) = n.left.as_ref() {
-                return n.is_red()
-            }
+    /// "split" a 4-node
+    fn color_flip(&mut self) {
+        self.color = self.color.inverse();
+        if let Some(n) = self.left.as_mut() {
+            n.color = n.color.inverse();
         }
-    }
-    false
-}
-
-///
-impl<K,V> BoxedNode for Box<Node<K,V>> where K: Ord {
-    type K = K;
-    type V = V;
-
-    fn is_red(&self) -> bool {
-        self.color == Red
-    }
-
-    fn get(&self, key: &K) -> Option<&V> {
-        let mut curr = self;
-        loop {
-            let next;
-            match key.cmp(&curr.key) {
-                Equal => { return Some(&curr.value) }
-                Less => { next = &curr.left; }
-                Greater => { next = &curr.right; }
-            }
-            match *next {
-                Some(ref node) => { curr = node }
-                None => { return None }
-            }
+        if let Some(n) = self.right.as_mut() {
+            n.color = n.color.inverse();
         }
-    }
-
-    fn min(&self) -> Option<&V> {
-        let mut curr = self;
-        loop {
-            let next = &curr.left;
-            match *next {
-                Some(ref node) => { curr = node }
-                None => { return Some(&curr.value) }
-            }
-        }
-    }
-
-    fn max(&self) -> Option<&V> {
-        let mut curr = self;
-        loop {
-            let next = &curr.right;
-            match *next {
-                Some(ref node) => { curr = node }
-                None => { return Some(&curr.value) }
-            }
-        }
-    }
-
-    fn insert(&mut self, key: K, value: V) -> Option<V> {
-        // break 4-nodes
-        if let (Some(_), Some(_)) = (self.left.as_ref(), self.right.as_ref()) {
-            if self.left.as_ref().unwrap().is_red() && self.right.as_ref().unwrap().is_red() {
-                self.flip_red();
-            }
-        }
-
-        let ret;
-        {
-            let next;
-            match key.cmp(&self.key) {
-                Equal => { // replace value
-                    let mut old = value;
-                    mem::swap(&mut self.value, &mut old);
-                    return Some(old);
-                }
-                Less => { next = &mut self.left; }
-                Greater => { next = &mut self.right; }
-            }
-            match *next { // recurse or insert here
-                Some(ref mut node) => {
-                    ret = node.insert(key, value);
-                }
-                None => {
-                    *next = Some(Node::new_boxed(key, value, Red));
-                    return None;
-                }
-            }
-        }
-
-        // fix right-leaning red
-        if is_red(&self.right) {
-            self.rotate_left()
-        }
-        // fix two reds in a row
-        if is_red_left_red(&self.left) {
-            self.rotate_right()
-        }
-        ret
-    }
-
-    /// split "4-nodes"
-    fn flip_red(&mut self) {
-        self.color = Red;
-        self.left.as_mut().unwrap().color = Black;
-        self.right.as_mut().unwrap().color = Black;
     }
 
     /// rotate left to fix right-leaning red
@@ -277,6 +112,215 @@ impl<K,V> BoxedNode for Box<Node<K,V>> where K: Ord {
         self.color = self.right.as_ref().unwrap().color.clone();
         self.right.as_mut().unwrap().color = Red;
     }
+
+    fn move_red_right(&mut self) {
+        self.color_flip();
+        if self.left.as_ref().unwrap().left.is_red() {
+            self.rotate_right();
+            self.color_flip();
+        }
+    }
+
+    fn move_red_left(&mut self) {
+        self.color_flip();
+        if self.right.as_ref().unwrap().left.is_red() {
+            self.right.as_mut().unwrap().rotate_right();
+            self.rotate_left();
+            self.color_flip();
+        }
+    }
+}
+
+/// BoxedNode ------------------
+trait BoxedNode {
+    type K;
+    type V;
+    fn get(&self, key: &Self::K) -> Option<&Self::V>;
+    fn min(&self) -> Option<&Self::V>;
+    fn max(&self) -> Option<&Self::V>;
+    fn insert(&mut self, key: Self::K, value: Self::V) -> Option<Self::V>;
+    fn remove_max(&mut self) -> Option<Self::V>;
+    fn remove_min(&mut self) -> Option<Self::V>;
+    // helpers
+    fn is_red(&self) -> bool;
+}
+
+///
+impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
+    type K = K;
+    type V = V;
+
+    fn is_red(&self) -> bool {
+        match self.as_ref() {
+            Some(n) => n.color == Red,
+            None => false,
+        }
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        let mut curr = self;
+        loop {
+            match curr.as_ref() {
+                Some(n) => {
+                    match key.cmp(&n.key) {
+                        Equal => { return Some(&n.value) }
+                        Less => { curr = &n.left; }
+                        Greater => { curr = &n.right; }
+                    }
+                }
+                None => return None,
+            }
+        }
+    }
+
+    fn min(&self) -> Option<&V> {
+        let mut curr = self;
+        loop {
+            match curr.as_ref() {
+                Some(n) => {
+                    match n.left {
+                        Some(_) => curr = &n.left,
+                        None => return Some(&n.value),
+                    }
+                }
+                None => return None,
+            }
+        }
+    }
+
+    fn max(&self) -> Option<&V> {
+        let mut curr = self;
+        loop {
+            match curr.as_ref() {
+                Some(n) => {
+                    match n.right.as_ref() {
+                        Some(_) => curr = &n.right,
+                        None => return Some(&n.value),
+                    }
+                }
+                None => return None,
+            }
+        }
+    }
+
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        // can't use match Some(n) here because we assign to self...
+        if let None = self.as_mut() {
+            *self = Node::new_boxed(key, value, Red);
+            return None;
+        } else {
+            let mut n = self.as_mut().unwrap();
+
+            // break 4-nodes
+            if n.left.is_red() && n.right.is_red() {
+                n.color_flip();
+            }
+
+            let ret;
+            match key.cmp(&n.key) {
+                Equal => { // replace value
+                    let mut old = value;
+                    mem::swap(&mut n.value, &mut old);
+                    ret = Some(old);
+                }
+                Less => {
+                    ret = n.left.insert(key,value);
+                }
+                Greater => {
+                    ret = n.right.insert(key,value);
+                }
+            }
+
+            // fix right-leaning red
+            if n.right.is_red() {
+                n.rotate_left();
+            }
+            // fix two reds in a row
+            if n.left.is_red() && n.left.as_ref().unwrap().left.is_red() {
+                n.rotate_right();
+            }
+
+            return ret;
+        }
+    }
+
+    fn remove_max(&mut self) -> Option<V> {
+        let mut remove_self = false;
+        let mut ret = None;
+        match self.as_mut() {
+            None => return None,
+            Some(n) => {
+                // lean 3-nodes to the right
+                if n.left.is_red() {
+                    n.rotate_right();
+                }
+                if n.right.is_none() {
+                    remove_self = true;
+                } else {
+                    if !n.right.is_red() && !n.right.as_ref().unwrap().left.is_red() {
+                        n.move_red_right();
+                    }
+                    ret = n.right.remove_max();
+                    // fix right-leaning red
+                    if n.right.is_red() {
+                        n.rotate_left();
+                    }
+                    // fix two reds in a row
+                    if n.left.is_red() && n.left.as_ref().unwrap().left.is_red() {
+                        n.rotate_right();
+                    }
+                    // break 4-nodes
+                    if n.left.is_red() && n.right.is_red() {
+                        n.color_flip();
+                    }
+                }
+            }
+        }
+
+        if remove_self {
+            let old = self.take();
+            return Some(old.unwrap().value);
+        } else {
+            return ret;
+        }
+    }
+
+    fn remove_min(&mut self) -> Option<V> {
+        let mut remove_self = false;
+        let mut ret = None;
+        match self.as_mut() {
+            None => return None,
+            Some(n) => {
+                if n.left.is_none() {
+                    remove_self = true;
+                } else {
+                    if !n.left.is_red() && !n.left.as_ref().unwrap().left.is_red() {
+                        n.move_red_left();
+                    }
+                    ret = n.left.remove_min();
+                    // fix right-leaning red
+                    if n.right.is_red() {
+                        n.rotate_left();
+                    }
+                    // fix two reds in a row
+                    if n.left.is_red() && n.left.as_ref().unwrap().left.is_red() {
+                        n.rotate_right();
+                    }
+                    // break 4-nodes
+                    if n.left.is_red() && n.right.is_red() {
+                        n.color_flip();
+                    }
+                }
+            }
+        }
+
+        if remove_self {
+            let old = self.take();
+            return Some(old.unwrap().value);
+        } else {
+            return ret;
+        }
+    }
 }
 
 #[test]
@@ -297,6 +341,68 @@ fn test_get() {
 }
 
 #[test]
+fn test_remove_max() {
+    let mut tree = RBTree::new();
+
+    for i in (1..1000).rev() {
+        tree.insert(i,i);
+    }
+    for i in (1..1000).rev() {
+        assert_eq!(tree.root.remove_max(), Some(i));
+    }
+}
+
+#[test]
+fn test_remove_min() {
+    let mut tree = RBTree::new();
+
+    for i in (1..1000).rev() {
+        tree.insert(i,i);
+    }
+    for i in 1..1000 {
+        assert_eq!(tree.root.remove_min(), Some(i));
+    }
+}
+
+#[allow(dead_code)]
+fn debug_breadth_print<K,V>(tree: &RBTree<K,V>) where K: Ord + Debug {
+    if tree.root.is_none() {
+        println!("Empty tree");
+        return;
+    }
+    let mut queue = vec![];
+    queue.push(tree.root.as_ref().unwrap());
+    let mut height = 0;
+    let mut height_nodes = 1; // tracks how many nodes we still need to pop in this height
+    let mut next_height_nodes = 0; // accumulator for the number of nodes on the next height
+    while !queue.is_empty() {
+        let n = queue.pop().unwrap();
+        height_nodes -= 1;
+        print!("{:?}:{:?} ", n.key, n.color);
+
+        if n.left.is_some() {
+            next_height_nodes += 1;
+            queue.insert(0, n.left.as_ref().unwrap());
+        }
+        if n.right.is_some() {
+            next_height_nodes += 1;
+            queue.insert(0, n.right.as_ref().unwrap());
+        }
+
+        if height_nodes == 0 {
+            // finished printing this height
+            height += 1;
+            height_nodes = next_height_nodes;
+            next_height_nodes = 0;
+            println!("");
+        }
+    }
+    stdout().flush().unwrap();
+    println!("Tree has height {}", height);
+}
+
+#[test]
+#[ignore]
 fn test_debug_breadth_print() {
     let mut tree = RBTree::new();
 
