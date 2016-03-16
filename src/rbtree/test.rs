@@ -30,7 +30,7 @@ fn test_remove_min() {
         tree.insert(i,i);
     }
     for i in 1..1000 {
-        assert_eq!(tree.root.remove_min().unwrap().value, i);
+        assert_eq!(tree.root.remove_min().unwrap().value, Some(i));
     }
 }
 

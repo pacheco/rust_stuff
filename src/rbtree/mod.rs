@@ -68,7 +68,7 @@ impl<K,V> RBTree<K,V> where K: Ord {
 #[derive(Debug)]
 struct Node<K,V> where K: Ord {
     key: K,
-    value: V,
+    value: Option<V>,
     color: Color,
     left: Option<Box<Node<K,V>>>,
     right: Option<Box<Node<K,V>>>,
@@ -82,7 +82,7 @@ impl<K,V> Node<K,V> where K: Ord {
     fn new(k: K, v: V, color: Color) -> Self {
         Node {
             key: k,
-            value: v,
+            value: Some(v),
             left: None,
             right: None,
             color: color,
@@ -156,6 +156,20 @@ trait BoxedNode {
     fn is_red(&self) -> bool;
 }
 
+impl<K,V> Drop for Node<K,V> where K: Ord {
+    fn drop(&mut self) {
+        let mut to_drop = vec![];
+        to_drop.push(mem::replace(&mut self.left, None));
+        to_drop.push(mem::replace(&mut self.right, None));
+        while let Some(next) = to_drop.pop() {
+            if let Some(mut n) = next {
+                to_drop.push(mem::replace(&mut n.left, None));
+                to_drop.push(mem::replace(&mut n.right, None));
+            }
+        }
+    }
+}
+
 ///
 impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
     type K = K;
@@ -174,7 +188,7 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
             match curr.as_ref() {
                 Some(n) => {
                     match key.cmp(&n.key) {
-                        Equal => { return Some(&n.value) }
+                        Equal => { return n.value.as_ref() }
                         Less => { curr = &n.left; }
                         Greater => { curr = &n.right; }
                     }
@@ -191,7 +205,7 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
                 Some(n) => {
                     match n.left {
                         Some(_) => curr = &n.left,
-                        None => return Some(&n.value),
+                        None => return n.value.as_ref(),
                     }
                 }
                 None => return None,
@@ -206,7 +220,7 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
                 Some(n) => {
                     match n.right.as_ref() {
                         Some(_) => curr = &n.right,
-                        None => return Some(&n.value),
+                        None => return n.value.as_ref(),
                     }
                 }
                 None => return None,
@@ -230,9 +244,9 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
             let ret;
             match key.cmp(&n.key) {
                 Equal => { // replace value
-                    let mut old = value;
+                    let mut old = Some(value);
                     mem::swap(&mut n.value, &mut old);
-                    ret = Some(old);
+                    ret = old;
                 }
                 Less => {
                     ret = n.left.insert(key,value);
@@ -315,7 +329,7 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
                         if key == &n.key {
                             let mut min_right = n.right.remove_min();
                             mem::swap(n, &mut min_right.as_mut().unwrap());
-                            ret = Some(min_right.unwrap().value);
+                            ret = mem::replace(&mut min_right.unwrap().value, None);
                         }
                     }
                 }
@@ -337,7 +351,7 @@ impl<K,V> BoxedNode for Option<Box<Node<K,V>>> where K: Ord {
         }
         if remove_self { // modify self outside due to the borrow checker...
             let old = self.take();
-            return Some(old.unwrap().value);
+            return mem::replace(&mut old.unwrap().value, None);
         }
         return ret;
     }
