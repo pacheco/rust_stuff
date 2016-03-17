@@ -15,5 +15,8 @@ Left-leaning Red-Black Tree.
 ### FramedTcpStream
 Wrapper over a tcpstream for sending/receiving length preceded frames
 
+### MuxServer
+A server listens for tcp connections and multiplexes messages into a single stream
+
 ### Echo examples
 Echo server, interactive client, and a "benchmarking" client
