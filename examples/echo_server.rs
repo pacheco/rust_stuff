@@ -4,12 +4,14 @@ use std::net::TcpListener;
 use rust_stuff::net::FramedTcpStream;
 use std::thread;
 
+const MAX_SIZE: usize = 32*1024;
 const ADDR: &'static str = "127.0.0.1:10000";
 
 fn handle_client(mut stream: FramedTcpStream) {
+    let mut buf: [u8;MAX_SIZE] = [0;MAX_SIZE];
     loop {
-        let msg = stream.next();
-        stream.write_frame(msg.unwrap().as_slice()).unwrap();
+        let len = stream.read_frame_into(&mut buf).unwrap();
+        stream.write_frame(&buf[0..len]).unwrap();
     }
 }
 
