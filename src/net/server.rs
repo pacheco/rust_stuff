@@ -10,6 +10,12 @@ use net::{FramedTcpStream, NetError};
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub struct Uid(u64);
 
+impl Uid {
+    pub fn next(&self) -> Uid {
+        Uid(self.0 + 1)
+    }
+}
+
 const QUEUE_SIZE: usize = 32*1024;
 
 #[derive(Debug)]
@@ -45,18 +51,13 @@ impl From<&'static str> for MuxServerError {
     }
 }
 
+/// Multiplexing server for framed messages over TCP.
 pub struct MuxServer {
     addr: SocketAddr,
     listener: Option<TcpListener>,
     events: (SyncSender<Event>, Receiver<Event>),
     connections: HashMap<Uid, FramedTcpStream>,
     new_connections: Arc<Mutex<HashMap<Uid, FramedTcpStream>>>,
-}
-
-struct StreamReceiver {
-    uid: Uid,
-    stream: FramedTcpStream,
-    events: SyncSender<Event>,
 }
 
 impl MuxServer {
@@ -78,30 +79,7 @@ impl MuxServer {
         let ev = self.events.0.clone();
         let nc = self.new_connections.clone();
         // start accept thread
-        thread::spawn(move || {
-            let mut next_uid = 0;
-            for stream in l.incoming() {
-                match stream {
-                    Ok(stream) => { // new connection
-                        if let Ok(stream1) = stream.try_clone() {
-                            let receiver = StreamReceiver {
-                                uid: Uid(next_uid),
-                                stream: FramedTcpStream::new(stream1),
-                                events: ev.clone(),
-                            };
-                            // add connection to new_connections
-                            let mut nc = nc.lock().unwrap(); // FIXME: is unwrap fine here?
-                            nc.insert(Uid(next_uid), FramedTcpStream::new(stream));
-                            next_uid += 1;
-                            thread::spawn(move || receiver.start());
-                        }
-                    }
-                    Err(e) => {
-                        ev.send(Event::UnexpectedError(MuxServerError::from(NetError::from(e)))).unwrap();
-                    }
-                }
-            }
-        });
+        thread::spawn(move || { stream_receiver(l, Uid(0), ev, nc) });
         Ok(())
     }
 
@@ -171,20 +149,48 @@ impl Iterator for MuxServer {
     }
 }
 
-impl StreamReceiver {
-    /// Loop receiving frames and putting them into a queue
-    fn start(mut self) {
-        if self.events.send(Event::Connected(self.uid)).is_ok() {
-            while let Ok(frame) = self.stream.read_frame() {
-                let p = Event::Recv(self.uid, frame);
-                if self.events.send(p).is_err() {
-                    break;
+fn stream_receiver(l: TcpListener,
+         uid: Uid,
+         events: SyncSender<Event>,
+         new_connections: Arc<Mutex<HashMap<Uid, FramedTcpStream>>>) {
+    match l.accept() {
+        Ok((stream, _)) => {
+            // accept more connections
+            {
+                let new_connections = new_connections.clone();
+                let events = events.clone();
+                let uid = uid.next();
+                thread::spawn(move || {
+                    stream_receiver(l, uid, events, new_connections)
+                });
+            }
+            match stream.try_clone() {
+                Ok(outstream) => {
+                    // register connection
+                    let mut nc = new_connections.lock().unwrap(); // FIXME: is unwrap fine here?
+                    nc.insert(uid, FramedTcpStream::new(outstream));
+                    drop(nc);
+                    // signal connected and start receiving
+                    let mut stream = FramedTcpStream::new(stream);
+                    if events.send(Event::Connected(uid)).is_ok() {
+                        while let Ok(frame) = stream.read_frame() {
+                            if events.send(Event::Recv(uid, frame)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    // signal disconnect and shutdown the connection
+                    if events.send(Event::Disconnected(uid)).is_err() {
+                        stream.shutdown(Shutdown::Both).unwrap();
+                    }
+                }
+                Err(_) => {
+                    events.send(Event::UnexpectedError(MuxServerError::from("Error cloning stream"))).unwrap();
                 }
             }
         }
-        // signal the server and drop the connection
-        if self.events.send(Event::Disconnected(self.uid)).is_err() {
-            self.stream.shutdown(Shutdown::Both).unwrap();
+        Err(e) => {
+            events.send(Event::UnexpectedError(MuxServerError::from(NetError::from(e)))).unwrap();
         }
     }
 }

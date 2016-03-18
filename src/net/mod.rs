@@ -13,7 +13,6 @@ pub enum NetError {
     FrameTooBig(usize),
 }
 
-
 impl From<io::Error> for NetError {
     fn from(err: io::Error) -> NetError {
         NetError::Io(err)

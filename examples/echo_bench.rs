@@ -25,12 +25,11 @@ fn main() {
         stream.read_frame_into(&mut buf).unwrap();
         count += 1;
         let now = time::PreciseTime::now();
+        let l = sendtime.to(now).num_microseconds().unwrap() as u64;
         if lat == 0 {
-            let l = sendtime.to(now).num_microseconds().unwrap() as u64;
             lat = l;
             max_lat = l;
         } else {
-            let l = sendtime.to(now).num_microseconds().unwrap() as u64;
             lat += l;
             lat = lat/2;
             max_lat = if l > max_lat { l } else { max_lat }
