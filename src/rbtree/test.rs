@@ -1,9 +1,7 @@
-extern crate rand;
-
 use rbtree::{RBTree, BoxedNode};
 use std::fmt::Debug;
 use std::io::{stdout, Write};
-use self::rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng};
 
 #[test]
 fn test_get() {

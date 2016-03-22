@@ -6,3 +6,5 @@ authors = ["Leandro Pacheco <contact@leandropacheco.com>"]
 [dependencies]
 rand = "0.3"
 time = "0.1"
+net2 = "*"
+mio = "0.5"

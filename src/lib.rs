@@ -1,3 +1,7 @@
+extern crate rand;
+extern crate net2;
+extern crate mio;
+
 mod btree;
 mod rbtree;
 

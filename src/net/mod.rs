@@ -3,6 +3,7 @@ pub mod server;
 use std::io;
 use std::io::{BufReader, Write, Read};
 use std::net::{TcpStream, Shutdown};
+use net2::TcpStreamExt;
 use std::slice;
 
 const HDR: usize = 4;
@@ -31,6 +32,7 @@ impl FramedTcpStream {
     /// Create a new `TcpFrameReader` reading from the given
     /// stream. Each frame is preceded by a 4 bytes 'len' header.
     pub fn new(stream: TcpStream) -> FramedTcpStream {
+        stream.set_nodelay(true).unwrap();
         FramedTcpStream {instream: BufReader::new(stream.try_clone().unwrap()),
                          outstream: stream,
                          h: [0; HDR]}
