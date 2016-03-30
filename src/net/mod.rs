@@ -1,4 +1,5 @@
 pub mod server;
+pub mod asyncserver;
 
 use std::io;
 use std::io::{BufReader, Write, Read};
@@ -93,7 +94,7 @@ impl Iterator for FramedTcpStream {
     }
 }
 
-fn network_to_u32(bytes: &[u8]) -> u32 {
+pub fn network_to_u32(bytes: &[u8]) -> u32 {
     debug_assert!(bytes.len() >= 4);
     let p = &bytes[0] as *const u8 as *const u32;
     unsafe {
