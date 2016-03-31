@@ -1,5 +1,4 @@
 pub mod server;
-pub mod asyncserver;
 
 use std::io;
 use std::io::{BufReader, Write, Read};
