@@ -75,7 +75,7 @@ impl<H: ServerHandler> Server<H> {
             Ok(Some((s, _))) => {
                 self.connections_new.push_back(s);
             }
-            Ok(None) => trace!("accept would block"),
+            Ok(None) => (),
             Err(err) => {
                 error!("error accepting connection: {}", err);
                 self.shutdown();
@@ -92,7 +92,7 @@ impl<H: ServerHandler> Server<H> {
                     }
                     let mut h = self.handler.take().unwrap();
                     let uid = self.connections[token].uid.clone();
-                    trace!("new connection {:?}", uid);
+                    debug!("new connection {:?}", uid);
                     h.connection(self, uid);
                     self.handler = Some(h);
                 }
@@ -116,10 +116,9 @@ impl<H: ServerHandler> Server<H> {
     fn remove_closed_connections(&mut self, evloop: &mut EventLoop<Self>) {
         let mut to_close = self.connections_closed.take().unwrap();
         for token in to_close.drain() {
-            trace!("removing connection {:?} from slab", token);
             if let Some(ref mut c) = self.connections.remove(token) {
-                if c.deregister(evloop).is_err() {
-                    error!("error deregistering connection");
+                if let Err(e) = c.deregister(evloop) {
+                    panic!("error deregistering connection from event loop: {:?}", e);
                 }
                 let mut h = self.handler.take().unwrap();
                 h.connection_closed(self, &c.uid);
@@ -150,15 +149,13 @@ impl<H: ServerHandler> Handler for Server<H> {
                 if events.is_readable() {
                     self.accept();
                 } else {
-                    error!("invalid event set for server socket: {:?}", events);
-                    panic!();
+                    panic!("invalid event set for server socket: {:?}", events);
                 }
             }
             client => {
                 let uid = self.connections[client].uid.clone();
                 // readable
                 if events.is_readable() {
-                    trace!("read event for {:?}", uid);
                     loop {
                         match self.connections[client].read_msg() {
                             Ok(ReadResult::Msg(msg)) => {
@@ -175,7 +172,7 @@ impl<H: ServerHandler> Handler for Server<H> {
                                 break;
                             }
                             Err(e) => {
-                                error!("error reading from {:?}: {:?}", uid, e);
+                                debug!("read error from {:?}: {:?}", uid.addr, e);
                                 self.connections_closed.as_mut().unwrap().insert(client);
                                 break;
                             }
@@ -184,9 +181,8 @@ impl<H: ServerHandler> Handler for Server<H> {
                 }
                 // writable
                 if events.is_writable(){
-                    trace!("write event for {:?}", uid);
                     if let Err(e) = self.connections[client].write() {
-                        error!("write error for {:?}: {:?}", uid, e);
+                        debug!("write error for {:?}: {:?}", uid.addr, e);
                         self.connections_closed.as_mut().unwrap().insert(client);
                     } else {
                         self.connections_reregister.as_mut().unwrap().insert(client);
@@ -194,7 +190,7 @@ impl<H: ServerHandler> Handler for Server<H> {
                 }
                 // hup
                 if events.is_hup() {
-                    trace!("hup event for {:?}", uid);
+                    debug!("hup event for {:?}", uid);
                     self.connections_closed.as_mut().unwrap().insert(client);
                 }
             }
@@ -203,17 +199,14 @@ impl<H: ServerHandler> Handler for Server<H> {
 
     #[allow(unused_variables)]
     fn notify(&mut self, evloop: &mut EventLoop<Self>, msg: Self::Message) {
-        trace!("notify");
     }
 
     #[allow(unused_variables)]
     fn timeout(&mut self, evloop: &mut EventLoop<Self>, timeout: Self::Timeout) {
-        trace!("timeout");
     }
 
     #[allow(unused_variables)]
     fn interrupted(&mut self, evloop: &mut EventLoop<Self>) {
-        trace!("interrupted");
     }
 
     fn tick(&mut self, evloop: &mut EventLoop<Self>) {
@@ -324,18 +317,15 @@ impl Connection {
         loop {
             match self.state {
                 ConnectionState::ReadSize => {
-                    debug!("read header buf.remaining {}", self.buf.remaining());
                     if self.buf.remaining() >= 4 {
                         let size = network_to_u32(self.buf.bytes()) as usize;
                         self.buf.advance(4);
                         self.state = ConnectionState::ReadData(size);
-                        debug!("read header: {}", size);
                     } else {
                         return None;
                     }
                 }
                 ConnectionState::ReadData(size) => {
-                    debug!("read msg buf.remaining {}", self.buf.remaining());
                     if self.buf.remaining() >= size {
                         self.state = ConnectionState::ReadSize;
                         let mut msg = Vec::with_capacity(size);
@@ -358,11 +348,9 @@ impl Connection {
         loop {
             match self.socket.try_read_buf(&mut self.buf) {
                 Ok(None) => {
-                    debug!("read: would block");
                     return Ok(ReadResult::None);
                 }
                 Ok(Some(r)) => {
-                    debug!("read: {} bytes", r);
                     if r == 0 {
                         return Ok(ReadResult::Closed);
                     }
@@ -371,8 +359,6 @@ impl Connection {
                     }
                 }
                 Err(e) => {
-                    debug!("read: error {}", e);
-                    // self.read_buf = Some(read_buf);
                     return Err(Error::from(e));
                 }
             }
@@ -395,7 +381,7 @@ impl Connection {
     fn write(&mut self) -> Result<(), Error> {
         while !self.to_send.is_empty() {
             match self.socket.try_write_buf(&mut self.to_send[0]) {
-                Ok(Some(n)) => debug!("write to {:?}: {} bytes", self.uid, n),
+                Ok(Some(_)) => (),
                 Ok(None) => break, // retry later
                 Err(e) => return Err(Error::from(e)),
             }
@@ -436,9 +422,9 @@ impl ServerHandler for MyHandler {
         self.connections.remove(uid);
         debug!("handler disconnect");
     }
-    fn message(&mut self, server: &mut ServerControl, _uid: &ConnectionUid, msg: Vec<u8>){
+    fn message(&mut self, server: &mut ServerControl, uid: &ConnectionUid, msg: Vec<u8>){
         debug!("handler message called");
-        server.multicast(&mut self.connections.iter(), &msg[..]);
+        server.send(uid, &msg[..]);
     }
 }
 
