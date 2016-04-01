@@ -5,7 +5,6 @@ extern crate bytes;
 extern crate log;
 extern crate env_logger;
 extern crate rand;
-extern crate slab;
 
 use rust_stuff::net::network_to_u32;
 use std::slice;
@@ -375,6 +374,10 @@ impl Connection {
         buf.write_slice(hdr);
         buf.write_slice(msg);
         self.to_send.push_back(buf.flip());
+        // try to write immediatelly
+        if let Err(e) = self.write() {
+            debug!("write error for {:?}: {:?}", self.uid.addr, e);
+        }
         self.interest.insert(EventSet::writable());
     }
 
