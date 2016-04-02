@@ -5,18 +5,29 @@ Misc things implemented in rust to learn about the language and the misc things 
 ## Datastructures
 
 ### BTree
+
 B-tree with a variable `order` (max number of children of a node).
 
 ### RBTree
+
 Left-leaning Red-Black Tree.
 
 ## Networking
 
 ### FramedTcpStream
-Wrapper over a tcpstream for sending/receiving length preceded frames
 
-### MuxServer
-A server listens for tcp connections and multiplexes messages into a single stream
+Wrapper over a tcpstream for sending/receiving length preceded messages
 
-### Echo examples
-Echo server, interactive client, and a "benchmarking" client
+### Sync Server
+
+Message-based TCP Server using blocking io and threads.
+Example usage: `examples/echo_sync_server`
+
+### Async Server
+
+Message-based TCP Server using asynchronous io (mio).
+Example usage: `examples/echo_async_server`
+
+### Echo client
+
+Interactive and "benchmarking" client for use with the echo servers
