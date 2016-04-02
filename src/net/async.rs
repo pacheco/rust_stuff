@@ -1,12 +1,5 @@
-extern crate rust_stuff;
-extern crate mio;
-extern crate bytes;
-#[macro_use]
-extern crate log;
-extern crate env_logger;
-extern crate rand;
-
-use rust_stuff::net::network_to_u32;
+use rand;
+use ::net::network_to_u32;
 use std::slice;
 use std::collections::{VecDeque, HashSet};
 use std::net::SocketAddr;
@@ -33,7 +26,7 @@ impl From<io::Error> for Error {
     }
 }
 
-struct Server<H: ServerHandler> {
+pub struct Server<H: ServerHandler> {
     token: Token,
     socket: TcpListener,
     connections: Slab<Connection>,
@@ -216,12 +209,14 @@ impl<H: ServerHandler> Handler for Server<H> {
     }
 }
 
-trait ServerControl {
+pub trait ServerControl {
     /// Send a msg to the destination. Will ignore a non existing connection
     fn send(&mut self, uid: &ConnectionUid, msg: &[u8]);
     /// Send a msg to the destination. Will ignore non existing connections
     fn multicast(&mut self, uids: &mut Iterator<Item=&ConnectionUid>, msg: &[u8]);
+    /// Close the connection
     fn close_connection(&mut self, uid: ConnectionUid);
+    /// Shutdown the server
     fn shutdown(&mut self);
 }
 
@@ -274,7 +269,7 @@ enum ReadResult {
 
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-struct ConnectionUid {
+pub struct ConnectionUid {
     id: u32,
     token: Token,
     addr: SocketAddr,
@@ -404,7 +399,7 @@ impl Connection {
 }
 
 #[allow(unused_variables)]
-trait ServerHandler {
+pub trait ServerHandler {
     fn connection(&mut self, server: &mut ServerControl, uid: ConnectionUid) {
     }
     fn connection_closed(&mut self, server: &mut ServerControl, uid: &ConnectionUid) {
@@ -412,32 +407,4 @@ trait ServerHandler {
     fn message(&mut self, server: &mut ServerControl, uid: &ConnectionUid, msg: Vec<u8>);
     fn shutting_down(&mut self, server: &mut ServerControl, err: Option<Error>) {
     }
-}
-
-// ------------------------------------------------------
-
-struct MyHandler {
-    connections: HashSet<ConnectionUid>,
-}
-
-impl ServerHandler for MyHandler {
-    fn connection(&mut self, _server: &mut ServerControl, uid: ConnectionUid) {
-        self.connections.insert(uid);
-        debug!("handler new connection");
-    }
-    fn connection_closed(&mut self, _server: &mut ServerControl, uid: &ConnectionUid) {
-        self.connections.remove(uid);
-        debug!("handler disconnect");
-    }
-    fn message(&mut self, server: &mut ServerControl, uid: &ConnectionUid, msg: Vec<u8>){
-        debug!("handler message called");
-        server.send(uid, &msg[..]);
-    }
-}
-
-fn main() {
-    env_logger::init().unwrap();
-    let addr = "127.0.0.1:10000".parse().unwrap();
-    let mut server = Server::bind(&addr, MyHandler{ connections: HashSet::new() }).unwrap();
-    server.run().unwrap();
 }

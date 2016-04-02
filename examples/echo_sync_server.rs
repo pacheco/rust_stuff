@@ -1,12 +1,12 @@
 extern crate rust_stuff;
 
 use std::net::{SocketAddr};
-use rust_stuff::net::server::{MuxServer,Event};
+use rust_stuff::net::sync::{Server,Event};
 
 const ADDR: &'static str = "127.0.0.1:10000";
 
 fn main() {
-    let mut server = MuxServer::new(ADDR.parse::<SocketAddr>().unwrap());
+    let mut server = Server::new(ADDR.parse::<SocketAddr>().unwrap());
     assert!(server.start().is_ok());
     println!("listening...");
     loop {

@@ -23,36 +23,36 @@ pub enum Event {
     Recv(Uid, Vec<u8>),
     Connected(Uid),
     Disconnected(Uid),
-    UnexpectedError(MuxServerError),
+    UnexpectedError(ServerError),
 }
 
 #[derive(Debug)]
-pub enum MuxServerError {
+pub enum ServerError {
     NotConnected,
     Net(NetError),
     InvalidState(&'static str),
 }
 
-impl From<NetError> for MuxServerError {
-    fn from(err: NetError) -> MuxServerError {
-        MuxServerError::Net(err)
+impl From<NetError> for ServerError {
+    fn from(err: NetError) -> ServerError {
+        ServerError::Net(err)
     }
 }
 
-impl From<io::Error> for MuxServerError {
-    fn from(err: io::Error) -> MuxServerError {
-        MuxServerError::Net(NetError::Io(err))
+impl From<io::Error> for ServerError {
+    fn from(err: io::Error) -> ServerError {
+        ServerError::Net(NetError::Io(err))
     }
 }
 
-impl From<&'static str> for MuxServerError {
-    fn from(err: &'static str) -> MuxServerError {
-        MuxServerError::InvalidState(err)
+impl From<&'static str> for ServerError {
+    fn from(err: &'static str) -> ServerError {
+        ServerError::InvalidState(err)
     }
 }
 
 /// Multiplexing server for framed messages over TCP.
-pub struct MuxServer {
+pub struct Server {
     addr: SocketAddr,
     listener: Option<TcpListener>,
     events: (SyncSender<Event>, Receiver<Event>),
@@ -60,9 +60,9 @@ pub struct MuxServer {
     new_connections: Arc<Mutex<HashMap<Uid, FramedTcpStream>>>,
 }
 
-impl MuxServer {
-    pub fn new(addr: SocketAddr) -> MuxServer {
-        MuxServer {
+impl Server {
+    pub fn new(addr: SocketAddr) -> Server {
+        Server {
             addr: addr,
             listener: None,
             events: sync_channel(QUEUE_SIZE), // TODO: how many events should be allowed here? make it unbounded?
@@ -73,7 +73,7 @@ impl MuxServer {
     }
 
     /// Start accepting connections.
-    pub fn start(&mut self) -> Result<(), MuxServerError> {
+    pub fn start(&mut self) -> Result<(), ServerError> {
         self.listener = Some(try!(TcpListener::bind(&self.addr)));
         let l = try!(self.listener.as_ref().unwrap().try_clone());
         let ev = self.events.0.clone();
@@ -84,31 +84,31 @@ impl MuxServer {
     }
 
     /// Send a frame to the given destination. It should be connected already.
-    pub fn send_to(&mut self, dest: Uid, data: &[u8]) -> Result<(), MuxServerError> {
+    pub fn send_to(&mut self, dest: Uid, data: &[u8]) -> Result<(), ServerError> {
         match self.connections.get_mut(&dest) {
             Some(s) => {
                 try!(s.write_frame(data));
             }
             None => {
-                return Err(MuxServerError::NotConnected);
+                return Err(ServerError::NotConnected);
             }
         }
         Ok(())
     }
 
-    pub fn shutdown(&mut self) -> Result<(), MuxServerError> {
+    pub fn shutdown(&mut self) -> Result<(), ServerError> {
         for (_, c) in self.connections.iter_mut() {
             c.shutdown(Shutdown::Both).is_ok(); // don't care about result
         }
         Ok(())
     }
 
-    fn next_event(&mut self) -> Result<Event, MuxServerError> {
+    fn next_event(&mut self) -> Result<Event, ServerError> {
         match self.events.1.recv() {
             Ok(Event::Connected(uid)) => {
                 let mut newc = match self.new_connections.lock() {
                     Ok(newc) => newc,
-                    Err(_) => return Err(MuxServerError::from("Mutex lock() error")),
+                    Err(_) => return Err(ServerError::from("Mutex lock() error")),
                 };
                 match newc.remove(&uid) {
                     Some(c) => {
@@ -116,7 +116,7 @@ impl MuxServer {
                         Ok(Event::Connected(uid))
                     }
                     None => {
-                        Err(MuxServerError::from("Connected event with no connection"))
+                        Err(ServerError::from("Connected event with no connection"))
                     }
                 }
             }
@@ -126,24 +126,24 @@ impl MuxServer {
                         Ok(Event::Disconnected(uid))
                     }
                     None => {
-                        Err(MuxServerError::from("Disconnected event with no connection"))
+                        Err(ServerError::from("Disconnected event with no connection"))
                     }
                 }
             }
             Ok(evt) => {
                 Ok(evt)
             }
-            Err(_) => Err(MuxServerError::from("Channel error")),
+            Err(_) => Err(ServerError::from("Channel error")),
         }
     }
 }
 
-impl Iterator for MuxServer {
+impl Iterator for Server {
     type Item = Event;
     /// Block waiting for the next `Event`. Will never return
     /// `None`. Errors will be returned as `Event::UnexpectedError`.
     fn next(&mut self) -> Option<Event> {
-        self.next_event().map_err(move |err| -> Result<Event, MuxServerError> {
+        self.next_event().map_err(move |err| -> Result<Event, ServerError> {
             Ok(Event::UnexpectedError(err))
         }).ok()
     }
@@ -185,12 +185,12 @@ fn stream_receiver(l: TcpListener,
                     }
                 }
                 Err(_) => {
-                    events.send(Event::UnexpectedError(MuxServerError::from("Error cloning stream"))).unwrap();
+                    events.send(Event::UnexpectedError(ServerError::from("Error cloning stream"))).unwrap();
                 }
             }
         }
         Err(e) => {
-            events.send(Event::UnexpectedError(MuxServerError::from(NetError::from(e)))).unwrap();
+            events.send(Event::UnexpectedError(ServerError::from(NetError::from(e)))).unwrap();
         }
     }
 }
