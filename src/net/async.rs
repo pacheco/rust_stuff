@@ -56,21 +56,23 @@ impl<H: ServerHandler> Server<H> {
     pub fn run(&mut self) -> Result<(), Error> {
         let mut evl = try!(EventLoop::new());
         try!(evl.register(&self.socket, self.token,
-                             EventSet::readable(),
-                             PollOpt::edge()));
+                          EventSet::readable(),
+                          PollOpt::edge()));
         try!(evl.run(self));
         Ok(())
     }
 
     fn accept(&mut self) {
-        match self.socket.accept() {
-            Ok(Some((s, _))) => {
-                self.connections_new.push_back(s);
-            }
-            Ok(None) => (),
-            Err(err) => {
-                error!("error accepting connection: {}", err);
-                self.shutdown();
+        loop {
+            match self.socket.accept() {
+                Ok(Some((s, _))) => {
+                    self.connections_new.push_back(s);
+                }
+                Ok(None) => break,
+                Err(err) => {
+                    error!("error accepting connection: {}", err);
+                    self.shutdown();
+                }
             }
         }
     }
