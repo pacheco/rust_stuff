@@ -34,7 +34,7 @@ pub struct Server<H: ServerHandler> {
     connections_closed: Option<HashSet<Token>>,
     connections_reregister: Option<HashSet<Token>>,
     handler: Option<H>,
-    evloop_chan: Option<Sender<ServerMessage<H::Message>>>,
+    evloop_chan: Option<Sender<ServerNotify<H::Message>>>,
 }
 
 impl<H: ServerHandler> Server<H> {
@@ -124,16 +124,16 @@ impl<H: ServerHandler> Server<H> {
     }
 }
 
-pub enum ServerMessage<M: Send> {
+pub enum ServerNotify<M: Send> {
     Shutdown,
     Msg(M),
 }
 
-unsafe impl<M: Send> Send for ServerMessage<M> {
+unsafe impl<M: Send> Send for ServerNotify<M> {
 }
 
 impl<H: ServerHandler> Handler for Server<H> {
-    type Message = ServerMessage<H::Message>;
+    type Message = ServerNotify<H::Message>;
     type Timeout = H::Timeout;
 
     fn ready(&mut self, _evloop: &mut EventLoop<Self>, token: Token, events: EventSet) {
@@ -193,13 +193,13 @@ impl<H: ServerHandler> Handler for Server<H> {
     #[allow(unused_variables)]
     fn notify(&mut self, evloop: &mut EventLoop<Self>, msg: Self::Message) {
         match msg {
-            ServerMessage::Shutdown => {
+            ServerNotify::Shutdown => {
                 evloop.shutdown();
                 let mut h = self.handler.take().unwrap();
                 h.shutting_down(None);
                 return;
             }
-            ServerMessage::Msg(msg) => {
+            ServerNotify::Msg(msg) => {
                 let mut h = self.handler.take().unwrap();
                 self.handler = Some(h);
             }
@@ -251,7 +251,7 @@ impl<H: ServerHandler> ServerControl for Server<H> {
         self.connections_closed.as_mut().unwrap().insert(uid.token);
     }
     fn shutdown(&mut self) {
-        self.evloop_chan.as_ref().unwrap().send(ServerMessage::Shutdown).unwrap();
+        self.evloop_chan.as_ref().unwrap().send(ServerNotify::Shutdown).unwrap();
     }
 }
 
