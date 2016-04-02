@@ -4,13 +4,15 @@ extern crate log;
 extern crate env_logger;
 
 use std::collections::HashSet;
-use rust_stuff::net::async::{ConnectionUid, Server, ServerHandler, ServerControl};
+use rust_stuff::net::async::{ConnectionUid, Server, ServerHandler, ServerControl, Error};
 
 struct MyHandler {
     connections: HashSet<ConnectionUid>,
 }
 
 impl ServerHandler for MyHandler {
+    type Message = ();
+    type Timeout = ();
     fn connection(&mut self, _server: &mut ServerControl, uid: ConnectionUid) {
         self.connections.insert(uid);
         debug!("handler new connection");
@@ -22,6 +24,9 @@ impl ServerHandler for MyHandler {
     fn message(&mut self, server: &mut ServerControl, uid: &ConnectionUid, msg: Vec<u8>){
         debug!("handler message called");
         server.send(uid, &msg[..]);
+    }
+    fn shutting_down(&mut self, _err: Option<Error>) {
+        debug!("shutting down...");
     }
 }
 
