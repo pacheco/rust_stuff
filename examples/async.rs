@@ -51,7 +51,7 @@ impl<H: ServerHandler> Server<H> {
         Ok(Server {
             token: Token(0),
             socket: s,
-            connections: Slab::new_starting_at(Token(1), MAX_CONNECTIONS), // max number of concurrent connections?
+            connections: Slab::new_starting_at(Token(1), MAX_CONNECTIONS), // max number of concurrent connections
             connections_new: VecDeque::new(),
             connections_closed: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
             connections_reregister: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
@@ -96,6 +96,7 @@ impl<H: ServerHandler> Server<H> {
                     self.handler = Some(h);
                 }
                 None => {
+                    // TODO: hold the connection instead?
                     error!("cannot accept new connection: limit reached");
                 }
             }
@@ -256,7 +257,7 @@ struct Connection {
     uid: ConnectionUid,
     state: ConnectionState,
     buf: RingBuf,
-    to_send: VecDeque<ByteBuf>,
+    to_send: VecDeque<ByteBuf>, // TODO: copy into a single buffer to avoid calling read multiple times?
     token: Token,
     socket: TcpStream,
     interest: EventSet,
@@ -327,6 +328,9 @@ impl Connection {
                 ConnectionState::ReadData(size) => {
                     if self.buf.remaining() >= size {
                         self.state = ConnectionState::ReadSize;
+                        // TODO: use a fixed buf/vec in the connection
+                        // to avoid allocation for every msg (passing
+                        // slice to the handler)
                         let mut msg = Vec::with_capacity(size);
                         let r = self.buf.try_read_buf(&mut msg).unwrap().unwrap();
                         debug_assert_eq!(size, r);
