@@ -91,7 +91,6 @@ impl<H: ServerHandler> Server<H> {
                     self.handler = Some(h);
                 }
                 None => {
-                    // TODO: hold the connection instead?
                     error!("cannot accept new connection: limit reached");
                 }
             }
@@ -208,6 +207,7 @@ impl<H: ServerHandler> Handler for Server<H> {
         self.register_new_connections(evloop);
         self.reregister_connections(evloop);
         self.remove_closed_connections(evloop);
+        // TODO: shutdown if self.shutdown == true
     }
 }
 
