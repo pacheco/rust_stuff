@@ -53,8 +53,8 @@ impl<H: ServerHandler> Server<H> {
             socket: s,
             connections: Slab::new_starting_at(Token(1), MAX_CONNECTIONS), // max number of concurrent connections?
             connections_new: VecDeque::new(),
-            connections_closed: Some(HashSet::new()),
-            connections_reregister: Some(HashSet::new()),
+            connections_closed: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
+            connections_reregister: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
             handler: Some(handler),
             shutdown: false,
         })
