@@ -17,7 +17,7 @@ impl ServerHandler for MyHandler {
     type Timeout = String;
     fn init(&mut self, _server: &mut ServerControl<Self>) {
         info!("init");
-        let chan = _server.notify_channel().clone();
+        let chan = _server.notify_channel();
         thread::spawn(move || {
             thread::sleep(std::time::Duration::from_secs(5));
             chan.send(String::from("hello from other thread!")).unwrap();

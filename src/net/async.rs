@@ -34,7 +34,6 @@ pub struct Server<H: ServerHandler> {
     connections_closed: Option<HashSet<Token>>,
     connections_reregister: Option<HashSet<Token>>,
     handler: Option<H>,
-    evloop_chan: Option<Sender<H::Message>>,
     shutdown: bool,
     shutdown_error: Option<Error>,
 }
@@ -51,7 +50,6 @@ impl<H: ServerHandler> Server<H> {
             connections_closed: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
             connections_reregister: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
             handler: Some(handler),
-            evloop_chan: None,
             shutdown: false,
             shutdown_error: None,
         })
@@ -62,9 +60,8 @@ impl<H: ServerHandler> Server<H> {
         try!(evl.register(&self.socket, self.token,
                           EventSet::readable(),
                           PollOpt::edge()));
-        self.evloop_chan = Some(evl.channel());
         let mut h = self.handler.take().unwrap();
-        h.init(self);
+        h.init(&mut ServerControl::new(self, &mut evl));
         self.handler = Some(h);
         try!(evl.run(self));
         Ok(())
@@ -96,7 +93,7 @@ impl<H: ServerHandler> Server<H> {
                     let mut h = self.handler.take().unwrap();
                     let uid = self.connections[token].uid.clone();
                     debug!("new connection {:?}", uid);
-                    h.connection(self, uid);
+                    h.connection(&mut ServerControl::new(self, evloop), uid);
                     self.handler = Some(h);
                 }
                 None => {
@@ -126,7 +123,7 @@ impl<H: ServerHandler> Server<H> {
                     self.shutdown_with_err(Error::from(err));
                 }
                 let mut h = self.handler.take().unwrap();
-                h.connection_closed(self, &c.uid);
+                h.connection_closed(&mut ServerControl::new(self, evloop), &c.uid);
                 self.handler = Some(h);
             }
         }
@@ -142,7 +139,7 @@ impl<H: ServerHandler> Handler for Server<H> {
     type Message = H::Message;
     type Timeout = H::Timeout;
 
-    fn ready(&mut self, _evloop: &mut EventLoop<Self>, token: Token, events: EventSet) {
+    fn ready(&mut self, evloop: &mut EventLoop<Self>, token: Token, events: EventSet) {
         match token {
             SERVER => {
                 if events.is_readable() {
@@ -159,7 +156,7 @@ impl<H: ServerHandler> Handler for Server<H> {
                         match self.connections[client].read_msg() {
                             Ok(ReadResult::Msg(msg)) => {
                                 let mut h = self.handler.take().unwrap();
-                                h.message(self, &uid, msg);
+                                h.message(&mut ServerControl::new(self, evloop), &uid, msg);
                                 self.handler = Some(h);
                             }
                             Ok(ReadResult::None) => {
@@ -199,7 +196,7 @@ impl<H: ServerHandler> Handler for Server<H> {
     #[allow(unused_variables)]
     fn notify(&mut self, evloop: &mut EventLoop<Self>, msg: Self::Message) {
         let mut h = self.handler.take().unwrap();
-        h.notify(self, msg);
+        h.notify(&mut ServerControl::new(self, evloop), msg);
         self.handler = Some(h);
     }
 
@@ -225,42 +222,48 @@ impl<H: ServerHandler> Handler for Server<H> {
     }
 }
 
-pub trait ServerControl<H: ServerHandler> {
-    /// Send a msg to the destination. Will ignore a non existing connection
-    fn send(&mut self, uid: &ConnectionUid, msg: &[u8]);
-    /// Send a msg to the destination. Will ignore non existing connections
-    fn multicast(&mut self, uids: &mut Iterator<Item=&ConnectionUid>, msg: &[u8]);
-    /// Close the connection
-    fn close_connection(&mut self, uid: ConnectionUid);
-    /// Shutdown the server
-    fn shutdown(&mut self);
-    /// Get the channel for notify msgs. Can be cloned for asynchronous notifications
-    fn notify_channel(&mut self) -> &Sender<H::Message>;
+pub struct ServerControl<'a, H: 'a + ServerHandler> {
+    server: &'a mut Server<H>,
+    evloop: &'a mut EventLoop<Server<H>>,
 }
 
 
-impl<H: ServerHandler> ServerControl<H> for Server<H> {
-    fn send(&mut self, uid: &ConnectionUid, msg: &[u8]) {
-        if let Some(c) = self.connections.get_mut(uid.token) {
+impl<'a, H: ServerHandler> ServerControl<'a, H>{
+    fn new(server: &'a mut Server<H>, evloop: &'a mut EventLoop<Server<H>>) -> Self {
+        ServerControl {
+            server: server,
+            evloop: evloop,
+        }
+    }
+    /// Send a msg to the destination. Will ignore a non existing connection
+    pub fn send(&mut self, uid: &ConnectionUid, msg: &[u8]) {
+        if let Some(c) = self.server.connections.get_mut(uid.token) {
             if &c.uid == uid {
-                c.send_msg(msg);
-                self.connections_reregister.as_mut().unwrap().insert(uid.token);
+                match c.send_msg(msg) {
+                    Ok(false) => {self.server.connections_reregister.as_mut().unwrap().insert(uid.token);}
+                    Err(_) => {self.server.connections_closed.as_mut().unwrap().insert(uid.token);}
+                    Ok(true) => (), // message already sent, no need to reregister
+                }
             }
         }
     }
-    fn multicast(&mut self, uids: &mut Iterator<Item=&ConnectionUid>, msg: &[u8]) {
+    /// Send a msg to the destination. Will ignore non existing connections
+    pub fn multicast(&mut self, uids: &mut Iterator<Item=&ConnectionUid>, msg: &[u8]) {
         for uid in uids {
             self.send(uid, msg);
         }
     }
-    fn close_connection(&mut self, uid: ConnectionUid) {
-        self.connections_closed.as_mut().unwrap().insert(uid.token);
+    /// Close the connection
+    pub fn close_connection(&mut self, uid: ConnectionUid) {
+        self.server.connections_closed.as_mut().unwrap().insert(uid.token);
     }
-    fn shutdown(&mut self) {
-        self.shutdown = true;
+    /// Shutdown the server
+    pub fn shutdown(&mut self) {
+        self.server.shutdown = true;
     }
-    fn notify_channel(&mut self) -> &Sender<H::Message> {
-        self.evloop_chan.as_ref().unwrap()
+    /// Get a channel for notify msgs
+    pub fn notify_channel(&mut self) -> Sender<H::Message> {
+        self.evloop.channel()
     }
 }
 
@@ -384,21 +387,36 @@ impl Connection {
         }
     }
 
-    fn send_msg(&mut self, msg: &[u8]) {
-        let mut buf = ByteBuf::mut_with_capacity(MSG_HDR_SIZE + msg.len());
+    // Result(true) if the message has already been written out (no
+    // need to reregister the connection)
+    fn send_msg(&mut self, msg: &[u8]) -> Result<bool, Error> {
         let hdr: &[u8];
         let len = (msg.len() as u32).to_be();
         unsafe {
             hdr = slice::from_raw_parts((&len as *const u32) as *const u8, 4);
         }
+        let mut buf = ByteBuf::mut_with_capacity(MSG_HDR_SIZE + msg.len());
         buf.write_slice(hdr);
         buf.write_slice(msg);
-        self.to_send.push_back(buf.flip());
+        let mut buf = buf.flip();
         // try to write immediatelly
-        if let Err(e) = self.write() {
-            debug!("write error for {:?}: {:?}", self.uid.addr, e);
+        while buf.remaining() != 0 {
+            match self.socket.try_write_buf(&mut buf) {
+                Ok(Some(_)) => (),
+                Ok(None) => break, // retry later
+                Err(e) => {
+                    debug!("write error for {:?}: {:?}", self.uid.addr, e);
+                    return Err(Error::from(e));
+                }
+            }
         }
-        self.interest.insert(EventSet::writable());
+        if buf.remaining() != 0 {
+            self.to_send.push_back(buf);
+            self.interest.insert(EventSet::writable());
+            Ok(false)
+        } else {
+            Ok(true)
+        }
     }
 
     fn write(&mut self) -> Result<(), Error> {
@@ -423,14 +441,14 @@ impl Connection {
 pub trait ServerHandler {
     type Message: Send;
     type Timeout;
-    fn init(&mut self, _server: &mut ServerControl<Self>) {
+    fn init(&mut self, _server: &mut ServerControl<Self>) where Self: Sized {
     }
-    fn connection(&mut self, server: &mut ServerControl<Self>, uid: ConnectionUid) {
+    fn connection(&mut self, server: &mut ServerControl<Self>, uid: ConnectionUid) where Self: Sized {
     }
-    fn connection_closed(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid) {
+    fn connection_closed(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid) where Self: Sized {
     }
-    fn message(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid, msg: Vec<u8>);
-    fn notify(&mut self, server: &mut ServerControl<Self>, msg: Self::Message);
-    fn shutting_down(&mut self, err: Option<Error>) {
+    fn message(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid, msg: Vec<u8>) where Self: Sized;
+    fn notify(&mut self, server: &mut ServerControl<Self>, msg: Self::Message) where Self: Sized;
+    fn shutting_down(&mut self, err: Option<Error>) where Self: Sized {
     }
 }
