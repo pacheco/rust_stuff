@@ -39,7 +39,6 @@ fn main() {
                 // send msg
                 let sendtime = time::PreciseTime::now();
                 stream.write_frame(msg.as_slice()).unwrap();
-                msg.clear();
                 stream.read_frame_into(&mut buf).unwrap();
                 let mut c = counters.lock().unwrap();
                 c.count += 1;
