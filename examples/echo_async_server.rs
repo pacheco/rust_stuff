@@ -3,7 +3,9 @@ extern crate rust_stuff;
 extern crate log;
 extern crate env_logger;
 
+use std::env;
 use std::collections::HashSet;
+use std::thread;
 use rust_stuff::net::async::{ConnectionUid, Server, ServerHandler, ServerControl, Error};
 
 struct MyHandler {
@@ -11,27 +13,43 @@ struct MyHandler {
 }
 
 impl ServerHandler for MyHandler {
-    type Message = ();
-    type Timeout = ();
-    fn connection(&mut self, _server: &mut ServerControl, uid: ConnectionUid) {
+    type Message = String;
+    type Timeout = String;
+    fn init(&mut self, _server: &mut ServerControl<Self>) {
+        info!("init");
+        let chan = _server.notify_channel().clone();
+        thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_secs(5));
+            chan.send(String::from("hello from other thread!")).unwrap();
+        });
+    }
+    fn connection(&mut self, _server: &mut ServerControl<Self>, uid: ConnectionUid) {
         self.connections.insert(uid);
-        debug!("handler new connection");
+        info!("new connection");
     }
-    fn connection_closed(&mut self, _server: &mut ServerControl, uid: &ConnectionUid) {
+    fn connection_closed(&mut self, _server: &mut ServerControl<Self>, uid: &ConnectionUid) {
         self.connections.remove(uid);
-        debug!("handler disconnect");
+        info!("disconnect");
     }
-    fn message(&mut self, server: &mut ServerControl, uid: &ConnectionUid, msg: Vec<u8>){
+    fn message(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid, msg: Vec<u8>){
         debug!("handler message called");
         server.send(uid, &msg[..]);
     }
+    fn notify(&mut self, _server: &mut ServerControl<Self>, msg: Self::Message) {
+        info!("notify msg: {}", msg);
+    }
     fn shutting_down(&mut self, _err: Option<Error>) {
-        debug!("shutting down...");
+        info!("shutting down...");
     }
 }
 
 fn main() {
-    env_logger::init().unwrap();
+    if env::var("RUST_LOG").is_ok() {
+        env_logger::init().unwrap();
+    }
+    else {
+        env_logger::LogBuilder::new().parse("info").init().unwrap();
+    }
     let addr = "127.0.0.1:10000".parse().unwrap();
     let mut server = Server::bind(&addr, MyHandler{ connections: HashSet::new() }).unwrap();
     server.run().unwrap();

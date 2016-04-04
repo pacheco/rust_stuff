@@ -34,7 +34,9 @@ pub struct Server<H: ServerHandler> {
     connections_closed: Option<HashSet<Token>>,
     connections_reregister: Option<HashSet<Token>>,
     handler: Option<H>,
-    evloop_chan: Option<Sender<ServerNotify<H::Message>>>,
+    evloop_chan: Option<Sender<H::Message>>,
+    shutdown: bool,
+    shutdown_error: Option<Error>,
 }
 
 impl<H: ServerHandler> Server<H> {
@@ -50,6 +52,8 @@ impl<H: ServerHandler> Server<H> {
             connections_reregister: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
             handler: Some(handler),
             evloop_chan: None,
+            shutdown: false,
+            shutdown_error: None,
         })
     }
 
@@ -59,6 +63,9 @@ impl<H: ServerHandler> Server<H> {
                           EventSet::readable(),
                           PollOpt::edge()));
         self.evloop_chan = Some(evl.channel());
+        let mut h = self.handler.take().unwrap();
+        h.init(self);
+        self.handler = Some(h);
         try!(evl.run(self));
         Ok(())
     }
@@ -72,7 +79,7 @@ impl<H: ServerHandler> Server<H> {
                 Ok(None) => break,
                 Err(err) => {
                     error!("error accepting connection: {}", err);
-                    self.shutdown();
+                    self.shutdown_with_err(Error::from(err));
                 }
             }
         }
@@ -82,8 +89,9 @@ impl<H: ServerHandler> Server<H> {
         while let Some(conn) = self.connections_new.pop_front() {
             match self.connections.insert_with(move |token| Connection::new(token, conn)) {
                 Some(token) => {
-                    if self.connections[token].register(evloop).is_err() {
-                        panic!("could not register new connection on event loop");
+                    if let Err(err) = self.connections[token].register(evloop) {
+                        error!("could not register new connection on event loop");
+                        self.shutdown_with_err(Error::from(err));
                     }
                     let mut h = self.handler.take().unwrap();
                     let uid = self.connections[token].uid.clone();
@@ -101,8 +109,9 @@ impl<H: ServerHandler> Server<H> {
     fn reregister_connections(&mut self, evloop: &mut EventLoop<Self>) {
         let mut uids = self.connections_reregister.take().unwrap();
         for uid in uids.drain() {
-            if let Err(e) = self.connections[uid].reregister(evloop) {
-                panic!("error reregistering connection on event loop: {:?}", e);
+            if let Err(err) = self.connections[uid].reregister(evloop) {
+                error!("could not reregister connection on event loop");
+                self.shutdown_with_err(Error::from(err));
             }
         }
         self.connections_reregister = Some(uids);
@@ -112,8 +121,9 @@ impl<H: ServerHandler> Server<H> {
         let mut to_close = self.connections_closed.take().unwrap();
         for token in to_close.drain() {
             if let Some(ref mut c) = self.connections.remove(token) {
-                if let Err(e) = c.deregister(evloop) {
-                    panic!("error deregistering connection from event loop: {:?}", e);
+                if let Err(err) = c.deregister(evloop) {
+                    error!("could not deregister connection from event loop");
+                    self.shutdown_with_err(Error::from(err));
                 }
                 let mut h = self.handler.take().unwrap();
                 h.connection_closed(self, &c.uid);
@@ -122,18 +132,14 @@ impl<H: ServerHandler> Server<H> {
         }
         self.connections_closed = Some(to_close);
     }
-}
 
-pub enum ServerNotify<M: Send> {
-    Shutdown,
-    Msg(M),
-}
-
-unsafe impl<M: Send> Send for ServerNotify<M> {
+    fn shutdown_with_err(&mut self, err: Error) {
+        self.shutdown_error = Some(err);
+    }
 }
 
 impl<H: ServerHandler> Handler for Server<H> {
-    type Message = ServerNotify<H::Message>;
+    type Message = H::Message;
     type Timeout = H::Timeout;
 
     fn ready(&mut self, _evloop: &mut EventLoop<Self>, token: Token, events: EventSet) {
@@ -192,18 +198,9 @@ impl<H: ServerHandler> Handler for Server<H> {
 
     #[allow(unused_variables)]
     fn notify(&mut self, evloop: &mut EventLoop<Self>, msg: Self::Message) {
-        match msg {
-            ServerNotify::Shutdown => {
-                evloop.shutdown();
-                let mut h = self.handler.take().unwrap();
-                h.shutting_down(None);
-                return;
-            }
-            ServerNotify::Msg(msg) => {
-                let mut h = self.handler.take().unwrap();
-                self.handler = Some(h);
-            }
-        }
+        let mut h = self.handler.take().unwrap();
+        h.notify(self, msg);
+        self.handler = Some(h);
     }
 
     #[allow(unused_variables)]
@@ -218,10 +215,17 @@ impl<H: ServerHandler> Handler for Server<H> {
         self.register_new_connections(evloop);
         self.reregister_connections(evloop);
         self.remove_closed_connections(evloop);
+        // shutdown check should be the last thing here, to catch the ServerHandler request for shutdown
+        if self.shutdown {
+            evloop.shutdown();
+            let mut h = self.handler.take().unwrap();
+            h.shutting_down(self.shutdown_error.take());
+            return;
+        }
     }
 }
 
-pub trait ServerControl {
+pub trait ServerControl<H: ServerHandler> {
     /// Send a msg to the destination. Will ignore a non existing connection
     fn send(&mut self, uid: &ConnectionUid, msg: &[u8]);
     /// Send a msg to the destination. Will ignore non existing connections
@@ -230,10 +234,12 @@ pub trait ServerControl {
     fn close_connection(&mut self, uid: ConnectionUid);
     /// Shutdown the server
     fn shutdown(&mut self);
+    /// Get the channel for notify msgs. Can be cloned for asynchronous notifications
+    fn notify_channel(&mut self) -> &Sender<H::Message>;
 }
 
 
-impl<H: ServerHandler> ServerControl for Server<H> {
+impl<H: ServerHandler> ServerControl<H> for Server<H> {
     fn send(&mut self, uid: &ConnectionUid, msg: &[u8]) {
         if let Some(c) = self.connections.get_mut(uid.token) {
             if &c.uid == uid {
@@ -251,7 +257,10 @@ impl<H: ServerHandler> ServerControl for Server<H> {
         self.connections_closed.as_mut().unwrap().insert(uid.token);
     }
     fn shutdown(&mut self) {
-        self.evloop_chan.as_ref().unwrap().send(ServerNotify::Shutdown).unwrap();
+        self.shutdown = true;
+    }
+    fn notify_channel(&mut self) -> &Sender<H::Message> {
+        self.evloop_chan.as_ref().unwrap()
     }
 }
 
@@ -414,11 +423,14 @@ impl Connection {
 pub trait ServerHandler {
     type Message: Send;
     type Timeout;
-    fn connection(&mut self, server: &mut ServerControl, uid: ConnectionUid) {
+    fn init(&mut self, _server: &mut ServerControl<Self>) {
     }
-    fn connection_closed(&mut self, server: &mut ServerControl, uid: &ConnectionUid) {
+    fn connection(&mut self, server: &mut ServerControl<Self>, uid: ConnectionUid) {
     }
-    fn message(&mut self, server: &mut ServerControl, uid: &ConnectionUid, msg: Vec<u8>);
+    fn connection_closed(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid) {
+    }
+    fn message(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid, msg: Vec<u8>);
+    fn notify(&mut self, server: &mut ServerControl<Self>, msg: Self::Message);
     fn shutting_down(&mut self, err: Option<Error>) {
     }
 }
