@@ -6,13 +6,13 @@ use std::slice;
 use std::collections::{VecDeque, HashSet};
 use std::net::SocketAddr;
 pub use mio::Timeout as TimeoutUid;
-use mio::{Token, TimerError, EventLoop, EventSet, PollOpt, Handler, Sender, TryRead, TryWrite};
+pub use mio::Sender as Sender;
+use mio::{Token, TimerError, EventLoop, EventSet, PollOpt, Handler, TryRead, TryWrite};
 use mio::tcp::*;
 use mio::util::Slab;
 use std::io;
 use bytes::{ByteBuf, RingBuf, Buf};
 
-const MAX_CONNECTIONS: usize = 128;
 const MAX_MSG_SIZE: usize = 32*1024;
 const MSG_HDR_SIZE: usize = 4;
 
@@ -22,6 +22,7 @@ const SERVER: Token = Token(0);
 pub enum Error {
     Io(io::Error),
     Timer(TimerError),
+    ConnectionLimit,
 }
 
 impl From<io::Error> for Error {
@@ -39,9 +40,10 @@ impl From<TimerError> for Error {
 /// Asynchronous IO, message-based, TCP Server
 pub struct Server<H: ServerHandler> {
     token: Token,
-    socket: TcpListener,
+    socket: Option<TcpListener>,
     connections: Slab<Connection>,
     connections_new: VecDeque<TcpStream>,
+    // TODO: HashSet is very slow for iterating: slowdown for large numbers of connections
     connections_closed: Option<HashSet<Token>>,
     connections_reregister: Option<HashSet<Token>>,
     handler: Option<H>,
@@ -50,16 +52,32 @@ pub struct Server<H: ServerHandler> {
 }
 
 impl<H: ServerHandler> Server<H> {
+    /// Create a new Server that doesn't bind to a local address, can
+    /// only connect to others (i.e. a client).
+    pub fn new(handler: H, max_connections: usize) -> Result<Self, Error> {
+        Ok(Server {
+            token: Token(0),
+            socket: None,
+            connections: Slab::new_starting_at(Token(1), max_connections), // max number of concurrent connections
+            connections_new: VecDeque::new(),
+            connections_closed: Some(HashSet::new()), // Some(HashSet::with_capacity(max_connections)),
+            connections_reregister: Some(HashSet::new()),// Some(HashSet::with_capacity(max_connections)),
+            handler: Some(handler),
+            shutdown: false,
+            shutdown_error: None,
+        })
+    }
+
     /// Create a new Server bound to the given address
-    pub fn bind(addr: &SocketAddr, handler: H) -> Result<Self, Error> {
+    pub fn bind(addr: &SocketAddr, handler: H, max_connections: usize) -> Result<Self, Error> {
         let s = try!(TcpListener::bind(&addr));
         Ok(Server {
             token: Token(0),
-            socket: s,
-            connections: Slab::new_starting_at(Token(1), MAX_CONNECTIONS), // max number of concurrent connections
+            socket: Some(s),
+            connections: Slab::new_starting_at(Token(1), max_connections), // max number of concurrent connections
             connections_new: VecDeque::new(),
-            connections_closed: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
-            connections_reregister: Some(HashSet::with_capacity(2*MAX_CONNECTIONS)),
+            connections_closed: Some(HashSet::new()), // Some(HashSet::with_capacity(max_connections)),
+            connections_reregister: Some(HashSet::new()),// Some(HashSet::with_capacity(max_connections)),
             handler: Some(handler),
             shutdown: false,
             shutdown_error: None,
@@ -69,9 +87,11 @@ impl<H: ServerHandler> Server<H> {
     /// Start the server's event loop, accepting new connections
     pub fn run(&mut self) -> Result<(), Error> {
         let mut evl = try!(EventLoop::new());
-        try!(evl.register(&self.socket, self.token,
-                          EventSet::readable(),
-                          PollOpt::edge()));
+        if let Some(ref s) = self.socket {
+            try!(evl.register(s, self.token,
+                              EventSet::readable(),
+                              PollOpt::edge()));
+        }
         let mut h = self.handler.take().unwrap();
         h.init(&mut ServerControl::new(self, &mut evl));
         self.handler = Some(h);
@@ -81,7 +101,7 @@ impl<H: ServerHandler> Server<H> {
 
     fn accept(&mut self) {
         loop {
-            match self.socket.accept() {
+            match self.socket.as_ref().unwrap().accept() {
                 Ok(Some((s, _))) => {
                     self.connections_new.push_back(s);
                 }
@@ -96,7 +116,9 @@ impl<H: ServerHandler> Server<H> {
 
     fn register_new_connections(&mut self, evloop: &mut EventLoop<Self>) {
         while let Some(conn) = self.connections_new.pop_front() {
-            match self.connections.insert_with(move |token| Connection::new(token, conn)) {
+            match self.connections.insert_with(
+                move |token| Connection::new(token, conn, ConnectionState::ReadSize)
+            ) {
                 Some(token) => {
                     if let Err(err) = self.connections[token].register(evloop) {
                         error!("could not register new connection on event loop");
@@ -147,9 +169,13 @@ impl<H: ServerHandler> Server<H> {
     }
 }
 
+pub enum ServerTimeout<T> {
+    User(T),
+}
+
 impl<H: ServerHandler> Handler for Server<H> {
     type Message = H::Message;
-    type Timeout = H::Timeout;
+    type Timeout = ServerTimeout<H::Timeout>;
 
     fn ready(&mut self, evloop: &mut EventLoop<Self>, token: Token, events: EventSet) {
         match token {
@@ -162,6 +188,21 @@ impl<H: ServerHandler> Handler for Server<H> {
             }
             client => {
                 let uid = self.connections[client].uid.clone();
+                // hup
+                if events.is_hup() || events.is_error() {
+                    debug!("hup/error event for {:?}", uid);
+                    match self.connections[client].state {
+                        ConnectionState::Connecting(_) => {
+                            let uid = self.connections[client].uid;
+                            self.connections[client].deregister(evloop).unwrap();
+                            let mut h = self.handler.take().unwrap();
+                            h.connect_failed(&mut ServerControl::new(self, evloop), &uid);
+                            self.handler = Some(h);
+                        }
+                        _ => {self.connections_closed.as_mut().unwrap().insert(client);}
+                    }
+                    return;
+                }
                 // readable
                 if events.is_readable() {
                     loop {
@@ -189,17 +230,21 @@ impl<H: ServerHandler> Handler for Server<H> {
                 }
                 // writable
                 if events.is_writable(){
+                    if let ConnectionState::Connecting(addr) = self.connections[client].state {
+                        debug!("connected to {}", addr);
+                        self.connections[client].state = ConnectionState::ReadSize;
+                        self.connections[client].interest.insert(EventSet::readable());
+                        let uid = self.connections[client].uid;
+                        let mut h = self.handler.take().unwrap();
+                        h.connection(&mut ServerControl::new(self, evloop), uid);
+                        self.handler = Some(h);
+                    }
                     if let Err(e) = self.connections[client].write() {
                         debug!("write error for {:?}: {:?}", uid.addr, e);
                         self.connections_closed.as_mut().unwrap().insert(client);
                     } else {
                         self.connections_reregister.as_mut().unwrap().insert(client);
                     }
-                }
-                // hup
-                if events.is_hup() {
-                    debug!("hup event for {:?}", uid);
-                    self.connections_closed.as_mut().unwrap().insert(client);
                 }
             }
         }
@@ -214,9 +259,13 @@ impl<H: ServerHandler> Handler for Server<H> {
 
     #[allow(unused_variables)]
     fn timeout(&mut self, evloop: &mut EventLoop<Self>, timeout: Self::Timeout) {
-        let mut h = self.handler.take().unwrap();
-        h.timeout(&mut ServerControl::new(self, evloop), timeout);
-        self.handler = Some(h);
+        match timeout {
+            ServerTimeout::User(timeout) => {
+                let mut h = self.handler.take().unwrap();
+                h.timeout(&mut ServerControl::new(self, evloop), timeout);
+                self.handler = Some(h);
+            }
+        }
     }
 
     #[allow(unused_variables)]
@@ -270,6 +319,27 @@ impl<'a, H: ServerHandler> ServerControl<'a, H>{
             self.send(uid, msg);
         }
     }
+    /// Asynchronously connect to the given address. An `Ok(uid)`
+    /// result *does not* mean the connection was successful. The
+    /// `uid` returned can be used when
+    /// `connection()/connect_failed()` are called to determine
+    /// success/failure
+    pub fn connect(&mut self, addr: SocketAddr) -> Result<ConnectionUid, Error> {
+        let conn = try!(TcpStream::connect(&addr));
+        let token = try!(match self.server.connections.insert_with(
+            move |token| Connection::new(token, conn, ConnectionState::Connecting(addr))
+        ) {
+            Some(token) => Ok(token),
+            None => Err(Error::ConnectionLimit),
+        });
+        self.server.connections[token].interest.insert(EventSet::writable() | EventSet::error());
+        try!(self.server.connections[token].register(self.evloop).or_else(|e| {
+            self.server.connections.remove(token);
+            error!("could not register socket on event loop");
+            Err(e)
+        }));
+        Ok(self.server.connections[token].uid)
+    }
     /// Close the connection
     pub fn close_connection(&mut self, uid: ConnectionUid) {
         self.server.connections_closed.as_mut().unwrap().insert(uid.token);
@@ -284,7 +354,7 @@ impl<'a, H: ServerHandler> ServerControl<'a, H>{
     }
     /// Schedule a timeout event
     pub fn timeout_ms(&mut self, timeout: H::Timeout, delay: u64) -> Result<TimeoutUid, Error> {
-        self.evloop.timeout_ms(timeout, delay).or_else(|err| Err(Error::from(err)))
+        self.evloop.timeout_ms(ServerTimeout::User(timeout), delay).or_else(|err| Err(Error::from(err)))
     }
     /// Cancel a scheduled timeout
     pub fn timeout_cancel(&mut self, timeout: TimeoutUid) {
@@ -293,6 +363,7 @@ impl<'a, H: ServerHandler> ServerControl<'a, H>{
 }
 
 enum ConnectionState {
+    Connecting(SocketAddr),
     ReadSize,
     ReadData(usize),
 }
@@ -326,19 +397,34 @@ pub struct ConnectionUid {
 }
 
 impl Connection {
-    fn new(token: Token, socket: TcpStream) -> Self {
+    fn new(token: Token, socket: TcpStream, state: ConnectionState) -> Self {
+        let addr;
+        let interest;
+        match state {
+            ConnectionState::Connecting(_addr) => {
+                addr = _addr;
+                interest = EventSet::writable() | EventSet::error() | EventSet::hup();
+            }
+            ConnectionState::ReadSize => {
+                addr = socket.peer_addr().unwrap();
+                interest = EventSet::readable() | EventSet::error() | EventSet::hup();
+            }
+            _ => {
+                panic!("invalid initial connection state");
+            }
+        }
         Connection {
             uid: ConnectionUid {
                 id: rand::random::<u32>(),
                 token: token,
-                addr: socket.peer_addr().unwrap()
+                addr: addr,
             },
-            state: ConnectionState::ReadSize,
+            state: state,
             buf: RingBuf::new(MAX_MSG_SIZE+MSG_HDR_SIZE),
             to_send: VecDeque::new(),
             token: token,
             socket: socket,
-            interest: EventSet::readable() | EventSet::hup(),
+            interest: interest,
         }
     }
 
@@ -383,6 +469,9 @@ impl Connection {
                     } else {
                         return None;
                     }
+                }
+                _ => {
+                    panic!("reading from invalid connection!");
                 }
             }
         }
@@ -494,5 +583,9 @@ pub trait ServerHandler {
     }
     /// Called when the server is shutting down.
     fn shutting_down(&mut self, err: Option<Error>) where Self: Sized {
+    }
+    /// Called whan a connect fails
+    fn connect_failed(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid)
+        where Self: Sized {
     }
 }

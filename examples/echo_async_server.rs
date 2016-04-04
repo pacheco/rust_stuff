@@ -59,6 +59,6 @@ fn main() {
         env_logger::LogBuilder::new().parse("info").init().unwrap();
     }
     let addr = "127.0.0.1:10000".parse().unwrap();
-    let mut server = Server::bind(&addr, MyHandler{ connections: HashSet::new() }).unwrap();
+    let mut server = Server::bind(&addr, MyHandler{ connections: HashSet::new() }, 128).unwrap();
     server.run().unwrap();
 }
