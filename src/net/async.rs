@@ -1,5 +1,3 @@
-// TODO: implement ServerControl connect_to with retry policies?
-
 use rand;
 use ::net::network_to_u32;
 use std::slice;
@@ -319,6 +317,9 @@ impl<'a, H: ServerHandler> ServerControl<'a, H>{
             self.send(uid, msg);
         }
     }
+
+    // TODO: implement connect with retry policies?
+
     /// Asynchronously connect to the given address. An `Ok(uid)`
     /// result *does not* mean the connection was successful. The
     /// `uid` returned can be used when
