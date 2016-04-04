@@ -1,9 +1,11 @@
+// TODO: implement ServerControl connect_to with retry policies?
+
 use rand;
 use ::net::network_to_u32;
 use std::slice;
 use std::collections::{VecDeque, HashSet};
 use std::net::SocketAddr;
-pub use mio::Timeout;
+pub use mio::Timeout as TimeoutUid;
 use mio::{Token, TimerError, EventLoop, EventSet, PollOpt, Handler, Sender, TryRead, TryWrite};
 use mio::tcp::*;
 use mio::util::Slab;
@@ -34,6 +36,7 @@ impl From<TimerError> for Error {
     }
 }
 
+/// Asynchronous IO, message-based, TCP Server
 pub struct Server<H: ServerHandler> {
     token: Token,
     socket: TcpListener,
@@ -63,6 +66,7 @@ impl<H: ServerHandler> Server<H> {
         })
     }
 
+    /// Start the server's event loop, accepting new connections
     pub fn run(&mut self) -> Result<(), Error> {
         let mut evl = try!(EventLoop::new());
         try!(evl.register(&self.socket, self.token,
@@ -233,6 +237,8 @@ impl<H: ServerHandler> Handler for Server<H> {
     }
 }
 
+/// Used to control the async server: send messages, schedule
+/// timeouts, close connections, shutdown and so on
 pub struct ServerControl<'a, H: 'a + ServerHandler> {
     server: &'a mut Server<H>,
     evloop: &'a mut EventLoop<Server<H>>,
@@ -276,8 +282,13 @@ impl<'a, H: ServerHandler> ServerControl<'a, H>{
     pub fn notify_channel(&mut self) -> Sender<H::Message> {
         self.evloop.channel()
     }
-    pub fn timeout_ms(&mut self, timeout: H::Timeout, delay: u64) -> Result<Timeout, Error>{
+    /// Schedule a timeout event
+    pub fn timeout_ms(&mut self, timeout: H::Timeout, delay: u64) -> Result<TimeoutUid, Error> {
         self.evloop.timeout_ms(timeout, delay).or_else(|err| Err(Error::from(err)))
+    }
+    /// Cancel a scheduled timeout
+    pub fn timeout_cancel(&mut self, timeout: TimeoutUid) {
+        self.evloop.clear_timeout(timeout);
     }
 }
 
@@ -307,6 +318,7 @@ enum ReadResult {
 
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+/// Unique id identifying a given connection.
 pub struct ConnectionUid {
     id: u32,
     token: Token,
@@ -451,21 +463,36 @@ impl Connection {
     }
 }
 
+// TODO: make the ServerHandler methods return Self? Would it facilitate STM-ish implementations?
+
 #[allow(unused_variables)]
+/// Trait for handling server events. The handler can use the
+/// `ServerControl` to issue operations such as sending messages,
+/// closing connections and setting timeouts.
 pub trait ServerHandler {
     type Message: Send;
     type Timeout;
-    fn init(&mut self, _server: &mut ServerControl<Self>) where Self: Sized {
+    /// Called right before starting the server's eventloop.
+    fn init(&mut self, server: &mut ServerControl<Self>) where Self: Sized {
     }
+    /// Called on a new connection. Use the given ConnectionUid to
+    /// identify incoming messages and to send messages to the
+    /// connection.
     fn connection(&mut self, server: &mut ServerControl<Self>, uid: ConnectionUid) where Self: Sized {
     }
+    /// Called on a disconnect
     fn connection_closed(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid) where Self: Sized {
     }
+    /// Called when a new network message is received
     fn message(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid, msg: Vec<u8>) where Self: Sized;
+    /// Called when a new notify message is received through the
+    /// server's channel (possibly from outside the event loop)
     fn notify(&mut self, server: &mut ServerControl<Self>, msg: Self::Message) where Self: Sized {
     }
+    /// Called when a timeout triggers
     fn timeout(&mut self, server: &mut ServerControl<Self>, timeout: Self::Timeout) where Self: Sized {
     }
+    /// Called when the server is shutting down.
     fn shutting_down(&mut self, err: Option<Error>) where Self: Sized {
     }
 }
