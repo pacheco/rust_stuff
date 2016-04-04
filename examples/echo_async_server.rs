@@ -15,13 +15,18 @@ struct MyHandler {
 impl ServerHandler for MyHandler {
     type Message = String;
     type Timeout = String;
-    fn init(&mut self, _server: &mut ServerControl<Self>) {
+    fn init(&mut self, server: &mut ServerControl<Self>) {
         info!("init");
-        let chan = _server.notify_channel();
+
+        // testing channel notify
+        let chan = server.notify_channel();
         thread::spawn(move || {
             thread::sleep(std::time::Duration::from_secs(5));
             chan.send(String::from("hello from other thread!")).unwrap();
         });
+
+        // testing timeout
+        server.timeout_ms(String::from("async timeout!"), 2000u64).unwrap();
     }
     fn connection(&mut self, _server: &mut ServerControl<Self>, uid: ConnectionUid) {
         self.connections.insert(uid);
@@ -37,6 +42,9 @@ impl ServerHandler for MyHandler {
     }
     fn notify(&mut self, _server: &mut ServerControl<Self>, msg: Self::Message) {
         info!("notify msg: {}", msg);
+    }
+    fn timeout(&mut self, _server: &mut ServerControl<Self>, timeout: Self::Timeout) {
+        info!("timeout: {}", timeout);
     }
     fn shutting_down(&mut self, _err: Option<Error>) {
         info!("shutting down...");

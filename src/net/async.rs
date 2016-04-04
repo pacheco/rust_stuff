@@ -3,7 +3,8 @@ use ::net::network_to_u32;
 use std::slice;
 use std::collections::{VecDeque, HashSet};
 use std::net::SocketAddr;
-use mio::*;
+pub use mio::Timeout;
+use mio::{Token, TimerError, EventLoop, EventSet, PollOpt, Handler, Sender, TryRead, TryWrite};
 use mio::tcp::*;
 use mio::util::Slab;
 use std::io;
@@ -18,11 +19,18 @@ const SERVER: Token = Token(0);
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
+    Timer(TimerError),
 }
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error::Io(err)
+    }
+}
+
+impl From<TimerError> for Error {
+    fn from(err: TimerError) -> Error {
+        Error::Timer(err)
     }
 }
 
@@ -202,6 +210,9 @@ impl<H: ServerHandler> Handler for Server<H> {
 
     #[allow(unused_variables)]
     fn timeout(&mut self, evloop: &mut EventLoop<Self>, timeout: Self::Timeout) {
+        let mut h = self.handler.take().unwrap();
+        h.timeout(&mut ServerControl::new(self, evloop), timeout);
+        self.handler = Some(h);
     }
 
     #[allow(unused_variables)]
@@ -264,6 +275,9 @@ impl<'a, H: ServerHandler> ServerControl<'a, H>{
     /// Get a channel for notify msgs
     pub fn notify_channel(&mut self) -> Sender<H::Message> {
         self.evloop.channel()
+    }
+    pub fn timeout_ms(&mut self, timeout: H::Timeout, delay: u64) -> Result<Timeout, Error>{
+        self.evloop.timeout_ms(timeout, delay).or_else(|err| Err(Error::from(err)))
     }
 }
 
@@ -448,7 +462,10 @@ pub trait ServerHandler {
     fn connection_closed(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid) where Self: Sized {
     }
     fn message(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid, msg: Vec<u8>) where Self: Sized;
-    fn notify(&mut self, server: &mut ServerControl<Self>, msg: Self::Message) where Self: Sized;
+    fn notify(&mut self, server: &mut ServerControl<Self>, msg: Self::Message) where Self: Sized {
+    }
+    fn timeout(&mut self, server: &mut ServerControl<Self>, timeout: Self::Timeout) where Self: Sized {
+    }
     fn shutting_down(&mut self, err: Option<Error>) where Self: Sized {
     }
 }
