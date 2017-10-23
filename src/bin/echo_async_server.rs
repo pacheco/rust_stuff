@@ -38,6 +38,7 @@ impl ServerHandler for MyHandler {
     }
     fn message(&mut self, server: &mut ServerControl<Self>, uid: &ConnectionUid, msg: Vec<u8>){
         debug!("handler message called");
+        // println!("msg: {}", String::from_utf8(msg.clone()).unwrap());
         server.send(uid, &msg[..]);
     }
     fn notify(&mut self, _server: &mut ServerControl<Self>, msg: Self::Message) {

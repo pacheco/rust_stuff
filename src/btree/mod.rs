@@ -145,7 +145,7 @@ impl<K, V> Node<K, V> where K: Ord {
     fn insert(&mut self, m: usize, key: K, value: V) -> Option<V> {
         debug_assert!(!self.is_full(m));
         let mut value = value;
-        let mut curr = self;
+        let curr = self;
 
         match curr.keys.binary_search(&key) {
             Ok(n) => {

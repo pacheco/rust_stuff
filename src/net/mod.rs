@@ -1,11 +1,11 @@
 pub mod sync;
 pub mod async;
 
+use byteorder::{ByteOrder, BigEndian};
+
 use std::io;
 use std::io::{BufReader, Write, Read};
 use std::net::{TcpStream, Shutdown};
-use net2::TcpStreamExt;
-use std::slice;
 
 const HDR: usize = 4;
 
@@ -47,7 +47,7 @@ impl FramedTcpStream {
     /// Read and return the next frame
     pub fn read_frame(&mut self) -> Result<Vec<u8>, NetError> {
         try!(self.instream.read_exact(&mut self.h));
-        let len = network_to_u32(&self.h) as usize;
+        let len = BigEndian::read_u32(&self.h) as usize;
         let mut msg = vec![0;len];
         try!(self.instream.read_exact(msg.as_mut_slice()));
         Ok(msg)
@@ -58,7 +58,7 @@ impl FramedTcpStream {
     /// message.
     pub fn read_frame_into(&mut self, buf: &mut [u8]) -> Result<usize, NetError> {
         try!(self.instream.read_exact(&mut self.h));
-        let len = network_to_u32(&self.h) as usize;
+        let len = BigEndian::read_u32(&self.h) as usize;
         if buf.len() < len {
             Err(NetError::FrameTooBig(len))
         } else {
@@ -69,12 +69,11 @@ impl FramedTcpStream {
 
     /// Writes a frame preceded by its length to the stream
     pub fn write_frame(&mut self, frame: &[u8]) -> Result<(), NetError> {
-        let len = (frame.len() as u32).to_be();
-        let bytes: &[u8];
-        unsafe {
-            bytes = slice::from_raw_parts((&len as *const u32) as *const u8, 4);
-        }
-        try!(self.outstream.write_all(bytes));
+        let len = frame.len() as u32;
+        let mut bytes = Vec::with_capacity(4);
+        unsafe { bytes.set_len(4) };
+        BigEndian::write_u32(&mut bytes[..4], len);
+        try!(self.outstream.write_all(&bytes[..4]));
         try!(self.outstream.write_all(frame));
         Ok(())
     }

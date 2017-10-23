@@ -5,6 +5,7 @@ extern crate mio;
 extern crate log;
 extern crate env_logger;
 extern crate bytes;
+extern crate byteorder;
 
 mod btree;
 mod rbtree;

@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::thread;
 
 const MAX_SIZE: usize = 32*1024;
-const ADDR: &'static str = "127.0.0.1:10000";
+const ADDR: &'static str = "0.0.0.0:10000";
 
 fn handle_client(mut stream: TcpStream) {
     let mut buf: [u8;MAX_SIZE] = [0;MAX_SIZE];
