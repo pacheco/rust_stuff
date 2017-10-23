@@ -1,0 +1,16 @@
+FROM alpine:3.6
+
+WORKDIR .
+COPY . .
+
+RUN apk update
+RUN apk upgrade
+RUN apk add rust
+RUN apk add cargo
+RUN cargo install
+
+ENV RUST_BACKTRACE 1
+ENV PATH "/root/.cargo/bin:${PATH}"
+
+
+CMD ["echo_raw_server"]
