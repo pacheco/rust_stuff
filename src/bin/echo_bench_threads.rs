@@ -1,6 +1,7 @@
 extern crate time;
 extern crate rust_stuff;
 extern crate byteorder;
+extern crate bincode;
 
 use rust_stuff::net::FramedTcpStream;
 use std::net::TcpStream;
@@ -11,7 +12,7 @@ use std::ops::Add;
 use byteorder::{BigEndian,ByteOrder};
 
 const ADDR: &'static str = "127.0.0.1:10000";
-const SIZE: usize = 32;
+const SIZE: usize = 1024;
 
 #[derive(Default)]
 struct Counters {
@@ -42,11 +43,12 @@ fn main() {
             };
             println!("Thread {} connected!", n);
 
-            let msg = "hello world! hello world! hello!".as_bytes();
+            let msg = "hello world! hello world! hello!".to_string();
+            let msg = bincode::serialize(&msg).unwrap();
             let mut frame = Vec::with_capacity(4+msg.len());
             unsafe { frame.set_len(4) };
             BigEndian::write_u32(&mut frame[..4], msg.len() as u32);
-            frame.extend_from_slice(msg);
+            frame.extend_from_slice(&msg);
 
             let mut buf: [u8; SIZE] = [0; SIZE];
             loop {

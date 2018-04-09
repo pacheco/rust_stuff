@@ -399,6 +399,7 @@ pub struct ConnectionUid {
 
 impl Connection {
     fn new(token: Token, socket: TcpStream, state: ConnectionState) -> Self {
+        socket.set_nodelay(true).unwrap();
         let addr;
         let interest;
         match state {
